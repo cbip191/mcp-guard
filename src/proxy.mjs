@@ -1,6 +1,10 @@
 import { spawn } from "node:child_process";
 import { redactPayload, redactText } from "./redact.mjs";
-import { detectPromptInjection } from "./injection.mjs";
+import {
+  detectPromptInjection,
+  taintUntrustedPayload,
+  wrapUntrustedField,
+} from "./injection.mjs";
 
 const MAX_HEADER_BYTES = 8192;
 const SIGNAL_EXIT_CODES = {
@@ -169,7 +173,13 @@ function buildBlockedError(id, message, alerts) {
 }
 
 function inspectSingleJsonRpcMessage(parsed, direction, options) {
-  const { redactPii = true, allowEmailDomains = [], blockInjections = false } = options;
+  const {
+    redactPii = true,
+    allowEmailDomains = [],
+    blockInjections = false,
+    taintUntrusted = false,
+    injectionThreshold = "medium",
+  } = options;
 
   const { sanitized, findings } = redactPayload(parsed, {
     redactPii,
@@ -183,10 +193,13 @@ function inspectSingleJsonRpcMessage(parsed, direction, options) {
       replyToUpstream: null,
       findings,
       injectionAlerts: [],
+      taintedPaths: [],
     };
   }
 
-  const injectionAlerts = detectPromptInjection(sanitized);
+  const injectionAlerts = detectPromptInjection(sanitized, {
+    threshold: injectionThreshold,
+  });
 
   if (blockInjections && injectionAlerts.length > 0 && sanitized && typeof sanitized === "object") {
     const hasId = sanitized.id !== undefined && sanitized.id !== null;
@@ -204,6 +217,7 @@ function inspectSingleJsonRpcMessage(parsed, direction, options) {
         ),
         findings,
         injectionAlerts,
+        taintedPaths: [],
       };
     }
 
@@ -215,6 +229,7 @@ function inspectSingleJsonRpcMessage(parsed, direction, options) {
         replyToUpstream: null,
         findings,
         injectionAlerts,
+        taintedPaths: [],
       };
     }
 
@@ -230,6 +245,7 @@ function inspectSingleJsonRpcMessage(parsed, direction, options) {
         replyToUpstream: null,
         findings,
         injectionAlerts,
+        taintedPaths: [],
       };
     }
 
@@ -240,6 +256,21 @@ function inspectSingleJsonRpcMessage(parsed, direction, options) {
       replyToUpstream: null,
       findings,
       injectionAlerts,
+      taintedPaths: [],
+    };
+  }
+
+  if (taintUntrusted && injectionAlerts.length > 0) {
+    const { tainted, taintedPaths } = taintUntrustedPayload(sanitized, {
+      threshold: injectionThreshold,
+    });
+    return {
+      action: "tainted",
+      message: tainted,
+      replyToUpstream: null,
+      findings,
+      injectionAlerts,
+      taintedPaths,
     };
   }
 
@@ -249,6 +280,7 @@ function inspectSingleJsonRpcMessage(parsed, direction, options) {
     replyToUpstream: null,
     findings,
     injectionAlerts,
+    taintedPaths: [],
   };
 }
 
@@ -257,7 +289,13 @@ function inspectSingleJsonRpcMessage(parsed, direction, options) {
  * Never fails open on unparseable frames: raw text is always scrubbed with redactText.
  */
 export function inspectFrame(raw, direction, options = {}) {
-  const { redactPii = true, allowEmailDomains = [], blockInjections = false } = options;
+  const {
+    redactPii = true,
+    allowEmailDomains = [],
+    blockInjections = false,
+    taintUntrusted = false,
+    injectionThreshold = "medium",
+  } = options;
 
   if (typeof raw !== "string" || raw.trim().length === 0) {
     return {
@@ -266,6 +304,7 @@ export function inspectFrame(raw, direction, options = {}) {
       repliesToUpstream: [],
       findings: [],
       injectionAlerts: [],
+      taintedPaths: [],
       unparseable: false,
       method: null,
     };
@@ -281,7 +320,9 @@ export function inspectFrame(raw, direction, options = {}) {
       allowEmailDomains,
     });
     const injectionAlerts =
-      direction === "mcp->agent" ? detectPromptInjection(redacted) : [];
+      direction === "mcp->agent"
+        ? detectPromptInjection(redacted, { threshold: injectionThreshold })
+        : [];
 
     if (direction === "mcp->agent" && blockInjections && injectionAlerts.length > 0) {
       return {
@@ -290,6 +331,20 @@ export function inspectFrame(raw, direction, options = {}) {
         repliesToUpstream: [],
         findings,
         injectionAlerts,
+        taintedPaths: [],
+        unparseable: true,
+        method: null,
+      };
+    }
+
+    if (direction === "mcp->agent" && taintUntrusted && injectionAlerts.length > 0) {
+      return {
+        action: "tainted",
+        output: wrapUntrustedField(redacted, injectionAlerts),
+        repliesToUpstream: [],
+        findings,
+        injectionAlerts,
+        taintedPaths: [""],
         unparseable: true,
         method: null,
       };
@@ -301,6 +356,7 @@ export function inspectFrame(raw, direction, options = {}) {
       repliesToUpstream: [],
       findings,
       injectionAlerts,
+      taintedPaths: [],
       unparseable: true,
       method: null,
     };
@@ -312,15 +368,19 @@ export function inspectFrame(raw, direction, options = {}) {
     const repliesToUpstream = [];
     const allFindings = [];
     const allAlerts = [];
+    const allTaintedPaths = [];
     let blockedCount = 0;
+    let taintedCount = 0;
 
     for (const item of parsed) {
       const res = inspectSingleJsonRpcMessage(item, direction, options);
       allFindings.push(...res.findings);
       allAlerts.push(...res.injectionAlerts);
+      allTaintedPaths.push(...res.taintedPaths);
       if (res.replyToUpstream) {
         repliesToUpstream.push(JSON.stringify(res.replyToUpstream));
       }
+      if (res.action === "tainted") taintedCount++;
       if (res.message !== null) {
         outBatch.push(res.message);
       } else {
@@ -328,12 +388,18 @@ export function inspectFrame(raw, direction, options = {}) {
       }
     }
 
+    let action = "forward";
+    if (outBatch.length === 0) action = "drop";
+    else if (blockedCount > 0) action = "replace";
+    else if (taintedCount > 0) action = "tainted";
+
     return {
-      action: outBatch.length > 0 ? (blockedCount > 0 ? "replace" : "forward") : "drop",
+      action,
       output: outBatch.length > 0 ? JSON.stringify(outBatch) : null,
       repliesToUpstream,
       findings: allFindings,
       injectionAlerts: allAlerts,
+      taintedPaths: allTaintedPaths,
       unparseable: false,
       method: null,
     };
@@ -346,6 +412,7 @@ export function inspectFrame(raw, direction, options = {}) {
     repliesToUpstream: res.replyToUpstream ? [JSON.stringify(res.replyToUpstream)] : [],
     findings: res.findings,
     injectionAlerts: res.injectionAlerts,
+    taintedPaths: res.taintedPaths,
     unparseable: false,
     method: parsed && typeof parsed === "object" && typeof parsed.method === "string"
       ? parsed.method
@@ -378,6 +445,8 @@ export function runStdioProxy(command, args = [], options = {}) {
   const {
     redactPii = true,
     blockInjections = false,
+    taintUntrusted = false,
+    injectionThreshold = "medium",
     allowEmailDomains = [],
     input = process.stdin,
     output = process.stdout,
@@ -386,7 +455,13 @@ export function runStdioProxy(command, args = [], options = {}) {
     forwardSignals = true,
   } = options;
 
-  const inspectOpts = { redactPii, blockInjections, allowEmailDomains };
+  const inspectOpts = {
+    redactPii,
+    blockInjections,
+    taintUntrusted,
+    injectionThreshold,
+    allowEmailDomains,
+  };
 
   function logAudit(line) {
     safeWrite(stderr, `[mcp-guard] ${line}\n`);

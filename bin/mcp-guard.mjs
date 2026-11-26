@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { readFileSync } from "node:fs";
-import { guardMcpResponse, runStdioProxy } from "../src/index.mjs";
+import { guardMcpResponse, runStdioProxy, SEVERITY_RANK } from "../src/index.mjs";
 
 const SAMPLE_STRIPE_KEY = ["sk", "test", "51N9xFakeStripeKeyExample987654321"].join("_");
 
@@ -42,12 +42,25 @@ Usage:
   mcp-guard demo
       Run a built-in multi-client agency audit (secrets, PII, ACL isolation, prompt injection).
 
-  mcp-guard scan <file.json> [--scopes scope1,scope2] [--allow-domain agency.dev]
+  mcp-guard scan <file.json> [--scopes scope1,scope2] [--allow-domain agency.dev] [--injection-threshold medium] [--taint-untrusted]
       Scan a Jira, Slack, or MCP JSON export and exit with code 1 if leaks or injections are found.
 
-  mcp-guard proxy [--block-injections] [--no-pii] [--allow-domain agency.dev] -- <upstream-mcp-command> [args...]
+  mcp-guard proxy [--block-injections] [--taint-untrusted] [--injection-threshold <low|medium|high|critical>] [--no-pii] [--allow-domain agency.dev] -- <upstream-mcp-command> [args...]
       Wrap any stdio MCP server and bidirectionally scrub secrets/PII on stdin & stdout JSON-RPC frames.
 `);
+}
+
+function parseInjectionThreshold(args) {
+  const raw = getFlagValue(args, "--injection-threshold");
+  if (!raw) return "medium";
+  const normalized = raw.trim().toLowerCase();
+  if (!Object.prototype.hasOwnProperty.call(SEVERITY_RANK, normalized)) {
+    console.error(
+      `Error: invalid --injection-threshold "${raw}". Expected one of: low, medium, high, critical.`
+    );
+    process.exit(2);
+  }
+  return normalized;
 }
 
 function getFlagValue(args, flag) {
@@ -103,12 +116,15 @@ if (cmd === "scan") {
   const parsed = JSON.parse(raw);
   const scopesRaw = getFlagValue(args, "--scopes");
   const allowDomainRaw = getFlagValue(args, "--allow-domain");
+  const injectionThreshold = parseInjectionThreshold(args);
 
   const result = guardMcpResponse(parsed, {
     callerScopes: scopesRaw ? scopesRaw.split(",").map((s) => s.trim()) : null,
     allowEmailDomains: allowDomainRaw
       ? allowDomainRaw.split(",").map((s) => s.trim().toLowerCase())
       : [],
+    injectionThreshold,
+    taintUntrusted: args.includes("--taint-untrusted"),
   });
 
   console.log(JSON.stringify(result.report, null, 2));
@@ -125,10 +141,13 @@ if (cmd === "proxy") {
   const upstreamCmd = args[sep + 1];
   const upstreamArgs = args.slice(sep + 2);
   const allowDomainRaw = getFlagValue(flags, "--allow-domain");
+  const injectionThreshold = parseInjectionThreshold(flags);
 
   runStdioProxy(upstreamCmd, upstreamArgs, {
     redactPii: !flags.includes("--no-pii"),
     blockInjections: flags.includes("--block-injections"),
+    taintUntrusted: flags.includes("--taint-untrusted"),
+    injectionThreshold,
     allowEmailDomains: allowDomainRaw
       ? allowDomainRaw.split(",").map((s) => s.trim().toLowerCase()).filter(Boolean)
       : [],
