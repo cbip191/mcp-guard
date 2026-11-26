@@ -26,7 +26,7 @@
   },
   "scripts": {
     "check": "node ./scripts/check.mjs",
-    "test": "node --test \"test/*.test.mjs\"",
+    "test": "node ./scripts/test.mjs",
     "demo": "node ./bin/mcp-guard.mjs demo",
     "prepublishOnly": "npm run check && npm test"
   },

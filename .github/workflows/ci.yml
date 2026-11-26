@@ -53,7 +53,7 @@ jobs:
         with:
           node-version: ${{ matrix.node }}
       - name: Run unit, proxy, CLI & ReDoS tests
-        run: ${{ matrix.coverage && 'node --test --experimental-test-coverage "test/*.test.mjs"' || 'npm test' }}
+        run: ${{ matrix.coverage && 'node ./scripts/test.mjs --experimental-test-coverage' || 'npm test' }}
       - name: Run demo smoke test
         run: npm run demo
 

@@ -17,7 +17,7 @@ import {
   guardMcpResponse,
   type GuardMcpResult,
   type Severity,
-} from "../src/index.mjs";
+} from "@4sails/mcp-guard";
 
 const entropy: number = shannonEntropy("abc123");
 const textRes = redactText("hello", {
