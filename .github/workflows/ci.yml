@@ -69,10 +69,15 @@ jobs:
         with:
           node-version: 22
       - name: Type-check src/index.d.ts against test/types.check.ts
-        run: >
-          npx --yes -p typescript@5 -p @types/node@22
-          tsc --noEmit --strict --target ES2022 --module NodeNext --moduleResolution NodeNext
-          test/types.check.ts
+        run: |
+          TYPE_DIR=$(mktemp -d)
+          npm --prefix "$TYPE_DIR" install --no-audit --no-fund typescript@5 @types/node@22
+          "$TYPE_DIR/node_modules/.bin/tsc" \
+            --noEmit --strict --target ES2022 \
+            --module NodeNext --moduleResolution NodeNext \
+            --typeRoots "$TYPE_DIR/node_modules/@types" \
+            --types node \
+            test/types.check.ts
 
   pack-smoke:
     name: Tarball install smoke test
