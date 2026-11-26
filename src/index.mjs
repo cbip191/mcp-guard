@@ -1,4 +1,10 @@
-import { redactPayload, redactText, SECRET_RULES, PII_RULES } from "./redact.mjs";
+import {
+  redactPayload,
+  redactText,
+  shannonEntropy,
+  SECRET_RULES,
+  PII_RULES,
+} from "./redact.mjs";
 import { filterFactsForPrincipal } from "./acl.mjs";
 import { detectPromptInjection, INJECTION_PATTERNS } from "./injection.mjs";
 import { runStdioProxy } from "./proxy.mjs";
@@ -6,6 +12,7 @@ import { runStdioProxy } from "./proxy.mjs";
 export {
   redactText,
   redactPayload,
+  shannonEntropy,
   SECRET_RULES,
   PII_RULES,
   filterFactsForPrincipal,
