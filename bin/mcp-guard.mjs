@@ -45,15 +45,22 @@ Usage:
   mcp-guard scan <file.json> [--scopes scope1,scope2] [--allow-domain agency.dev]
       Scan a Jira, Slack, or MCP JSON export and exit with code 1 if leaks or injections are found.
 
-  mcp-guard proxy [--block-injections] [--no-pii] -- <upstream-mcp-command> [args...]
-      Wrap any stdio MCP server and live-scrub secrets/PII on outbound JSON-RPC messages.
+  mcp-guard proxy [--block-injections] [--no-pii] [--allow-domain agency.dev] -- <upstream-mcp-command> [args...]
+      Wrap any stdio MCP server and bidirectionally scrub secrets/PII on stdin & stdout JSON-RPC frames.
 `);
 }
 
 function getFlagValue(args, flag) {
-  const idx = args.indexOf(flag);
-  if (idx === -1 || idx + 1 >= args.length) return null;
-  return args[idx + 1];
+  const prefix = `${flag}=`;
+  for (let i = 0; i < args.length; i++) {
+    if (args[i] === flag && i + 1 < args.length) {
+      return args[i + 1];
+    }
+    if (args[i].startsWith(prefix)) {
+      return args[i].slice(prefix.length);
+    }
+  }
+  return null;
 }
 
 const args = process.argv.slice(2);
@@ -117,10 +124,14 @@ if (cmd === "proxy") {
   const flags = args.slice(1, sep);
   const upstreamCmd = args[sep + 1];
   const upstreamArgs = args.slice(sep + 2);
+  const allowDomainRaw = getFlagValue(flags, "--allow-domain");
 
   runStdioProxy(upstreamCmd, upstreamArgs, {
     redactPii: !flags.includes("--no-pii"),
     blockInjections: flags.includes("--block-injections"),
+    allowEmailDomains: allowDomainRaw
+      ? allowDomainRaw.split(",").map((s) => s.trim().toLowerCase()).filter(Boolean)
+      : [],
   });
 } else {
   console.error(`Unknown command: ${cmd}`);
