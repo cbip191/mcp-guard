@@ -54,8 +54,9 @@ Usage:
       Scan a JSON or JSONL export (or '-' for stdin). Exits 0 if clean, 1 if findings exist, 2 on error.
 
   mcp-guard proxy [--block-injections] [--taint-untrusted] [--injection-threshold <low|medium|high|critical>]
-                  [--no-pii] [--allow-domain agency.dev] -- <upstream-mcp-command> [args...]
-      Wrap any stdio MCP server and bidirectionally scrub secrets/PII on stdin & stdout JSON-RPC frames.
+                  [--no-pii] [--redact-outbound-pii] [--allow-domain agency.dev] -- <upstream-mcp-command> [args...]
+      Wrap any stdio MCP server: always scrubs outbound secrets (opt-in PII via --redact-outbound-pii) and
+      scrubs inbound secrets/PII + guards against indirect prompt injection.
 
 Options:
   -v, --version    Print version and exit
@@ -300,6 +301,7 @@ if (cmd === "proxy") {
 
   runStdioProxy(upstreamCmd, upstreamArgs, {
     redactPii: !flags.includes("--no-pii"),
+    redactOutboundPii: flags.includes("--redact-outbound-pii"),
     blockInjections: flags.includes("--block-injections"),
     taintUntrusted: flags.includes("--taint-untrusted"),
     injectionThreshold,

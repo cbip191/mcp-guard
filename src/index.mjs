@@ -56,10 +56,34 @@ export function guardMcpResponse(payload, options = {}) {
   let working = payload;
   let aclReport = null;
 
-  if (callerScopes && working && Array.isArray(working.facts)) {
+  if (callerScopes !== null && callerScopes !== undefined) {
+    if (!working || typeof working !== "object" || !Array.isArray(working.facts)) {
+      return {
+        sanitized: null,
+        report: {
+          secretsAndPiiRedacted: 0,
+          findings: [],
+          injectionAlerts: [],
+          taintedPaths: [],
+          acl: {
+            enforced: false,
+            blocked: true,
+            reason: "unsupported_payload_shape_for_acl",
+            allowedCount: 0,
+            droppedCount: 0,
+            droppedFactIds: [],
+            strippedCitations: 0,
+          },
+          safe: false,
+        },
+      };
+    }
+
     const filtered = filterFactsForPrincipal(working.facts, callerScopes);
     working = { ...working, facts: filtered.allowed };
     aclReport = {
+      enforced: true,
+      blocked: false,
       allowedCount: filtered.allowed.length,
       droppedCount: filtered.dropped.length,
       droppedFactIds: filtered.dropped.map((d) => d.factId),

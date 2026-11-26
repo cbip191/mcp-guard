@@ -38,11 +38,14 @@ if (mode === "sleep") {
     }
 
     if (msg.method === "echo") {
-      // Echo back exact params received by upstream (proves inbound stdin redaction)
+      // Echo back exact params received by upstream + boolean probe for raw email preservation
       const reply = {
         jsonrpc: "2.0",
         id: msg.id,
-        result: { echoed: msg.params },
+        result: {
+          echoed: msg.params,
+          receivedRawAssignee: msg.params?.assignee === "bob@client.io",
+        },
       };
       process.stdout.write(encodeFrame(JSON.stringify(reply), framing));
       return;

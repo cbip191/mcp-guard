@@ -175,14 +175,17 @@ function buildBlockedError(id, message, alerts) {
 function inspectSingleJsonRpcMessage(parsed, direction, options) {
   const {
     redactPii = true,
+    redactOutboundPii = false,
     allowEmailDomains = [],
     blockInjections = false,
     taintUntrusted = false,
     injectionThreshold = "medium",
   } = options;
 
+  const shouldRedactPii = direction === "agent->mcp" ? redactOutboundPii : redactPii;
+
   const { sanitized, findings } = redactPayload(parsed, {
-    redactPii,
+    redactPii: shouldRedactPii,
     allowEmailDomains,
   });
 
@@ -291,6 +294,7 @@ function inspectSingleJsonRpcMessage(parsed, direction, options) {
 export function inspectFrame(raw, direction, options = {}) {
   const {
     redactPii = true,
+    redactOutboundPii = false,
     allowEmailDomains = [],
     blockInjections = false,
     taintUntrusted = false,
@@ -315,8 +319,9 @@ export function inspectFrame(raw, direction, options = {}) {
     parsed = JSON.parse(raw);
   } catch {
     // Fail-closed redaction: NEVER forward unparseable lines unredacted
+    const shouldRedactPii = direction === "agent->mcp" ? redactOutboundPii : redactPii;
     const { text: redacted, findings } = redactText(raw, {
-      redactPii,
+      redactPii: shouldRedactPii,
       allowEmailDomains,
     });
     const injectionAlerts =
@@ -444,6 +449,7 @@ function safeWrite(stream, data) {
 export function runStdioProxy(command, args = [], options = {}) {
   const {
     redactPii = true,
+    redactOutboundPii = false,
     blockInjections = false,
     taintUntrusted = false,
     injectionThreshold = "medium",
@@ -457,6 +463,7 @@ export function runStdioProxy(command, args = [], options = {}) {
 
   const inspectOpts = {
     redactPii,
+    redactOutboundPii,
     blockInjections,
     taintUntrusted,
     injectionThreshold,

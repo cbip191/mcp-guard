@@ -76,7 +76,7 @@ test("inspectFrame never fails open on unparseable frames", () => {
   assert.match(res.output, /\[REDACTED:EMAIL_ADDRESS\]/);
 });
 
-test("E2E proxy redacts outbound stdin (agent -> MCP) and inbound stdout (MCP -> agent) with --allow-domain", async () => {
+test("E2E proxy redacts outbound secrets while preserving legitimate outbound PII by default (opt-in --redact-outbound-pii)", async () => {
   const outboundAws = ["AKIA", "IOSFODNN7EXAMPLE"].join("");
   const outboundSlack = ["xoxb", "111111111111", "2222222222222", "SecretTokenHere"].join("-");
 
@@ -85,7 +85,8 @@ test("E2E proxy redacts outbound stdin (agent -> MCP) and inbound stdout (MCP ->
     id: 1,
     method: "echo",
     params: {
-      comment: `Pushing ${outboundAws} and ${outboundSlack} for dana@agency.dev and bob@client.io`,
+      assignee: "bob@client.io",
+      comment: `Pushing ${outboundAws} and ${outboundSlack} for dana@agency.dev`,
     },
   });
   const req2 = JSON.stringify({
@@ -104,15 +105,15 @@ test("E2E proxy redacts outbound stdin (agent -> MCP) and inbound stdout (MCP ->
   const lines = stdout.trim().split("\n").map((l) => JSON.parse(l));
   assert.equal(lines.length, 2);
 
-  // Verify upstream server received ALREADY-REDACTED stdin params
-  const echoedComment = lines[0].result.echoed.comment;
-  assert.match(echoedComment, /\[REDACTED:AWS_ACCESS_KEY\]/);
-  assert.match(echoedComment, /\[REDACTED:SLACK_TOKEN\]/);
-  assert.ok(echoedComment.includes("dana@agency.dev"));
-  assert.ok(!echoedComment.includes("bob@client.io"));
-  assert.match(echoedComment, /\[REDACTED:EMAIL_ADDRESS\]/);
+  // Verify upstream server received ALREADY-REDACTED secrets, while legitimate assignee email reached Jira/MCP intact
+  // (and was still scrubbed on the way back from MCP -> agent!)
+  const echoed = lines[0].result.echoed;
+  assert.equal(lines[0].result.receivedRawAssignee, true);
+  assert.equal(echoed.assignee, "[REDACTED:EMAIL_ADDRESS]");
+  assert.match(echoed.comment, /\[REDACTED:AWS_ACCESS_KEY\]/);
+  assert.match(echoed.comment, /\[REDACTED:SLACK_TOKEN\]/);
 
-  // Verify downstream response was scrubbed while respecting --allow-domain agency.dev
+  // Verify inbound response STILL scrubs secrets AND external PII while respecting --allow-domain agency.dev
   const leakedText = lines[1].result.content[0].text;
   assert.match(leakedText, /Stripe=\[REDACTED:STRIPE_SECRET_KEY\]/);
   assert.ok(leakedText.includes("Owner=dana@agency.dev"));
@@ -121,6 +122,18 @@ test("E2E proxy redacts outbound stdin (agent -> MCP) and inbound stdout (MCP ->
   // Audit telemetry went strictly to stderr
   assert.match(stderr, /dir=agent->mcp/);
   assert.match(stderr, /dir=mcp->agent/);
+
+  // Opt-in --redact-outbound-pii scrubs outbound external emails BEFORE reaching upstream MCP
+  const strictRes = await runProxyCli(
+    ["--allow-domain=agency.dev", "--redact-outbound-pii"],
+    [process.execPath, MOCK_SERVER_PATH],
+    [`${req1}\n`]
+  );
+  assert.equal(strictRes.code, 0);
+  const strictResult = JSON.parse(strictRes.stdout.trim()).result;
+  assert.equal(strictResult.receivedRawAssignee, false);
+  assert.equal(strictResult.echoed.assignee, "[REDACTED:EMAIL_ADDRESS]");
+  assert.ok(strictResult.echoed.comment.includes("dana@agency.dev"));
 });
 
 test("E2E proxy supports Content-Length framing and recalculates UTF-8 byte lengths after redaction", async () => {
@@ -278,7 +291,10 @@ test("E2E proxy supports --taint-untrusted and --injection-threshold without dro
   assert.match(stderr, /action=tainted/);
 });
 
-test("E2E proxy forwards SIGTERM to upstream child and exits cleanly", async () => {
+test(
+  "E2E proxy forwards SIGTERM to upstream child and exits cleanly",
+  { skip: process.platform === "win32" },
+  async () => {
   const result = await new Promise((resolvePromise, reject) => {
     const child = spawn(
       process.execPath,

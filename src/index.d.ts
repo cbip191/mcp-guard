@@ -106,6 +106,7 @@ export interface FrameParser {
 
 export interface InspectFrameOptions {
   redactPii?: boolean;
+  redactOutboundPii?: boolean;
   allowEmailDomains?: string[];
   blockInjections?: boolean;
   taintUntrusted?: boolean;
@@ -140,6 +141,9 @@ export interface GuardMcpOptions {
 }
 
 export interface GuardAclReport {
+  enforced: boolean;
+  blocked: boolean;
+  reason?: string;
   allowedCount: number;
   droppedCount: number;
   droppedFactIds: string[];
@@ -156,7 +160,7 @@ export interface GuardMcpReport {
 }
 
 export interface GuardMcpResult<T = unknown> {
-  sanitized: T;
+  sanitized: T | null;
   report: GuardMcpReport;
 }
 

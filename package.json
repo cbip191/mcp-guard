@@ -25,9 +25,10 @@
     "access": "public"
   },
   "scripts": {
-    "test": "node --test test/*.test.mjs",
+    "check": "node ./scripts/check.mjs",
+    "test": "node --test \"test/*.test.mjs\"",
     "demo": "node ./bin/mcp-guard.mjs demo",
-    "prepublishOnly": "npm test"
+    "prepublishOnly": "npm run check && npm test"
   },
   "engines": {
     "node": ">=20.0.0"
@@ -50,8 +51,11 @@
   ],
   "author": "Mykola Mishchenko <hello@4sails.tech> (https://4sails.tech)",
   "homepage": "https://4sails.tech/open-source/mcp-guard",
+  "bugs": {
+    "url": "https://github.com/cbip191/mcp-guard/issues"
+  },
   "repository": {
     "type": "git",
-    "url": "https://github.com/cbip191/mcp-guard.git"
+    "url": "git+https://github.com/cbip191/mcp-guard.git"
   }
 }

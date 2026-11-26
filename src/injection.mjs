@@ -58,14 +58,14 @@ export const INJECTION_PATTERNS = [
     severity: "high",
     tier: "high-confidence",
     pattern:
-      /\b(?:you\s+are\s+now\s+(?:in\s+)?(?:dan|developer\s+mode|unrestricted|jailbroken|an?\s+unfiltered\b)|enter\s+(?:developer|jailbreak|dan|unrestricted)\s+mode|system\s+prompt\s+override|new\s+system\s+instructions?\s*:|from\s+now\s+on[,\s]+you\s+(?:must|will|shall)\s+(?:ignore|obey|disregard|reveal))\b/i,
+      /(?:\b(?:you\s+are\s+now\s+(?:in\s+)?(?:dan|developer\s+mode|unrestricted|jailbroken|an?\s+unfiltered\b)|enter\s+(?:developer|jailbreak|dan|unrestricted)\s+mode|system\s+prompt\s+override|new\s+system\s+instructions?\s*:|from\s+now\s+on[,\s]+you\s+(?:must|will|shall)\s+(?:ignore|obey|disregard|reveal))\b|(?:^|\n)\s*(?:system|assistant)\s*:\s*(?:new\s+(?:task|instructions?|directive)|ignore|disregard|override|upload|exfiltrate)\b)/i,
   },
   {
     id: "SHELL_EXFILTRATION",
     severity: "critical",
     tier: "high-confidence",
     pattern:
-      /(?:\b(?:curl|wget|nc|ncat|netcat|socat|scp|rsync|iwr|invoke-webrequest)\b[\s\S]{0,160}(?:\.ssh|id_rsa|id_ed25519|aws\/credentials|\/etc\/passwd|\/etc\/shadow|process\.env|\.env\b|printenv)|\$\(\s*(?:cat|head|tail|printenv|env)\b[\s\S]{0,80}(?:\.ssh|id_rsa|id_ed25519|aws\/credentials|\/etc\/passwd|\.env\b))/i,
+      /(?:\b(?:curl|wget|nc|ncat|netcat|socat|scp|rsync|iwr|invoke-webrequest)\b[\s\S]{0,160}(?:\.ssh|id_rsa|id_ed25519|aws\/credentials|\/etc\/passwd|\/etc\/shadow|process\.env|\.env\b|printenv)|\$\(\s*(?:cat|head|tail|printenv|env)\b[\s\S]{0,80}(?:\.ssh|id_rsa|id_ed25519|aws\/credentials|\/etc\/passwd|\.env\b)|\b(?:upload|transmit|exfiltrate|send|post|copy|read|cat)\b[\s\S]{0,80}(?:~\/\.aws\/credentials|\.aws\/credentials|~\/\.ssh\/id_|\b\.ssh\/(?:id_rsa|id_ed25519)|\/etc\/shadow\b))/i,
   },
   {
     id: "SECRET_EXTRACTION",
