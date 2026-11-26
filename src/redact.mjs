@@ -18,6 +18,12 @@ const NON_SECRET_KEY_NAME_RE =
 const AWS_SECRET_KEY_NAME_RE =
   /^(?:aws[_-]?secret(?:[_-]?access)?[_-]?key|secret[_-]?access[_-]?key|secretAccessKey)$/i;
 
+const GEMINI_KEY_NAME_RE =
+  /^(?:gemini[_-]?(?:api[_-]?)?key|google[_-]?ai[_-]?(?:api[_-]?)?key|geminiApiKey)$/i;
+
+const MISTRAL_KEY_NAME_RE =
+  /^(?:mistral[_-]?(?:api[_-]?)?key|mistralApiKey)$/i;
+
 const PLACEHOLDER_VALUE_RE =
   /^(?:your[_-]|replace[_-]|placeholder|changeme|example[_-]|dummy[_-]|sample[_-]|fake[_-]|redacted|xxx+|000+|\*+)/i;
 
@@ -111,9 +117,26 @@ export const SECRET_RULES = [
     pattern: /\bAT[A-Z]TT3x[A-Za-z0-9_=-]{20,256}\b/g,
   },
   {
+    id: "GEMINI_API_KEY",
+    severity: "critical",
+    pattern:
+      /(\b(?:gemini[_-]?(?:api[_-]?)?key|google[_-]?ai[_-]?(?:api[_-]?)?key|geminiApiKey)\b\\?["']?\s*[:=]\s*\\?["']?)(AIza[0-9A-Za-z_-]{35})\b/gi,
+    valueGroup: 2,
+    prefixGroup: 1,
+  },
+  {
     id: "GCP_API_KEY",
     severity: "critical",
     pattern: /\bAIza[0-9A-Za-z_-]{35}\b/g,
+  },
+  {
+    id: "MISTRAL_API_KEY",
+    severity: "critical",
+    pattern:
+      /(\b(?:mistral[_-]?(?:api[_-]?)?key|mistralApiKey)\b\\?["']?\s*[:=]\s*\\?["']?)([A-Za-z0-9]{32})(?![A-Za-z0-9])/gi,
+    valueGroup: 2,
+    prefixGroup: 1,
+    validate: (val) => isHighEntropySecretValue(val),
   },
   {
     id: "NPM_TOKEN",
@@ -146,9 +169,34 @@ export const SECRET_RULES = [
     pattern: /\bsk-ant-[A-Za-z0-9_-]{20,160}\b/g,
   },
   {
+    id: "OPENROUTER_API_KEY",
+    severity: "critical",
+    pattern: /\bsk-or-v1-[0-9a-fA-F]{64}\b/g,
+  },
+  {
     id: "OPENAI_API_KEY",
     severity: "critical",
-    pattern: /\bsk-(?!ant-)(?:proj-|svcacct-|admin-)?[A-Za-z0-9_-]{20,160}\b/g,
+    pattern: /\bsk-(?!ant-|or-v1-)(?:proj-|svcacct-|admin-)?[A-Za-z0-9_-]{20,160}\b/g,
+  },
+  {
+    id: "GROQ_API_KEY",
+    severity: "critical",
+    pattern: /\bgsk_[A-Za-z0-9]{48,64}\b/g,
+  },
+  {
+    id: "HUGGINGFACE_TOKEN",
+    severity: "critical",
+    pattern: /\bhf_[A-Za-z0-9]{30,64}\b/g,
+  },
+  {
+    id: "PERPLEXITY_API_KEY",
+    severity: "critical",
+    pattern: /\bpplx-[A-Za-z0-9]{40,64}\b/g,
+  },
+  {
+    id: "XAI_API_KEY",
+    severity: "critical",
+    pattern: /\bxai-[A-Za-z0-9]{40,128}\b/g,
   },
   {
     id: "PRIVATE_KEY_BLOCK",
@@ -177,7 +225,7 @@ export const SECRET_RULES = [
     severity: "high",
     entropy: true,
     pattern:
-      /(\b(?:api[_-]?key|apikey|api[_-]?secret|client[_-]?secret|secret[_-]?key|access[_-]?token|auth[_-]?token|refresh[_-]?token|private[_-]?token|signing[_-]?secret|signing[_-]?key|webhook[_-]?secret|encryption[_-]?key|master[_-]?key|password|passwd|pwd|db[_-]?pass(?:word)?|secret|token|credential|apiKey|apiSecret|clientSecret|secretKey|accessToken|authToken|refreshToken|privateToken|signingSecret|signingKey|webhookSecret|encryptionKey|masterKey|dbPassword)\b\\?["']?\s*[:=]\s*\\?["']?)([^\s"'\\,;{}()[\]]{16,256})/gi,
+      /(\b(?:(?:[A-Za-z0-9]{1,24}[_-]){1,3})?(?:api[_-]?key|apikey|api[_-]?secret|client[_-]?secret|secret[_-]?key|access[_-]?key|access[_-]?token|auth[_-]?token|refresh[_-]?token|private[_-]?token|signing[_-]?secret|signing[_-]?key|webhook[_-]?secret|encryption[_-]?key|master[_-]?key|password|passwd|pwd|db[_-]?pass(?:word)?|secret|token|credential)\b\\?["']?\s*[:=]\s*\\?["']?|\b(?:[a-z][A-Za-z0-9]{0,24})?(?:apiKey|ApiKey|apiSecret|ApiSecret|clientSecret|ClientSecret|secretKey|SecretKey|accessKey|AccessKey|accessToken|AccessToken|authToken|AuthToken|refreshToken|RefreshToken|privateToken|PrivateToken|signingSecret|SigningSecret|signingKey|SigningKey|webhookSecret|WebhookSecret|encryptionKey|EncryptionKey|masterKey|MasterKey|dbPassword|DbPassword)\b\\?["']?\s*[:=]\s*\\?["']?)([^\s"'\\,;{}()[\]]{16,256})/gi,
     valueGroup: 2,
     prefixGroup: 1,
     validate: (val) => isHighEntropySecretValue(val),
@@ -242,6 +290,30 @@ function redactStringInternal(text, normalized, contextKey = null) {
   const { rules, allowedDomains, detectHighEntropy } = normalized;
   const findings = [];
   let output = text;
+
+  // Specific structured-field attribution before generic pattern matching (e.g. { gemini_api_key: "AIza..." })
+  if (contextKey) {
+    if (GEMINI_KEY_NAME_RE.test(contextKey) && /^AIza[0-9A-Za-z_-]{35}$/.test(output)) {
+      findings.push({
+        ruleId: "GEMINI_API_KEY",
+        severity: "critical",
+        preview: makePreview(output),
+      });
+      return { text: "[REDACTED:GEMINI_API_KEY]", findings };
+    }
+    if (
+      MISTRAL_KEY_NAME_RE.test(contextKey) &&
+      /^[A-Za-z0-9]{32}$/.test(output) &&
+      isHighEntropySecretValue(output)
+    ) {
+      findings.push({
+        ruleId: "MISTRAL_API_KEY",
+        severity: "critical",
+        preview: makePreview(output),
+      });
+      return { text: "[REDACTED:MISTRAL_API_KEY]", findings };
+    }
+  }
 
   for (let i = 0; i < rules.length; i++) {
     const rule = rules[i];

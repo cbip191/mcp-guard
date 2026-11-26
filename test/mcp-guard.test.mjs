@@ -35,24 +35,78 @@ test("redacts AWS, GitHub, Slack, Stripe, and Postgres credentials deterministic
   assert.ok(!text.includes("supersecret"));
 });
 
-test("classifies ANTHROPIC_API_KEY before OPENAI_API_KEY", () => {
+test("classifies ANTHROPIC_API_KEY and OPENROUTER_API_KEY before OPENAI_API_KEY", () => {
   const sampleAnthropic = ["sk", "ant", "api03", "FakeAnthropicKeyValue9876543210ABC"].join("-");
+  const sampleOpenRouter = [
+    "sk",
+    "or",
+    "v1",
+    "a1b2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c6d7e8f90",
+  ].join("-");
   const sampleOpenAi = ["sk", "proj", "FakeOpenAiProjectKey9876543210XYZ"].join("-");
 
   const anthropicIdx = SECRET_RULES.findIndex((r) => r.id === "ANTHROPIC_API_KEY");
+  const openRouterIdx = SECRET_RULES.findIndex((r) => r.id === "OPENROUTER_API_KEY");
   const openaiIdx = SECRET_RULES.findIndex((r) => r.id === "OPENAI_API_KEY");
-  assert.ok(anthropicIdx >= 0 && openaiIdx >= 0 && anthropicIdx < openaiIdx);
+  assert.ok(anthropicIdx >= 0 && openRouterIdx >= 0 && openaiIdx >= 0);
+  assert.ok(anthropicIdx < openaiIdx && openRouterIdx < openaiIdx);
 
   const { text, findings } = redactText(
-    `Anthropic=${sampleAnthropic}\nOpenAI=${sampleOpenAi}`,
+    `Anthropic=${sampleAnthropic}\nOpenRouter=${sampleOpenRouter}\nOpenAI=${sampleOpenAi}`,
     { redactPii: false }
   );
 
-  assert.equal(findings.length, 2);
-  assert.equal(findings[0].ruleId, "ANTHROPIC_API_KEY");
-  assert.equal(findings[1].ruleId, "OPENAI_API_KEY");
+  assert.equal(findings.length, 3);
+  assert.deepEqual(
+    findings.map((f) => f.ruleId),
+    ["ANTHROPIC_API_KEY", "OPENROUTER_API_KEY", "OPENAI_API_KEY"]
+  );
   assert.match(text, /Anthropic=\[REDACTED:ANTHROPIC_API_KEY\]/);
+  assert.match(text, /OpenRouter=\[REDACTED:OPENROUTER_API_KEY\]/);
   assert.match(text, /OpenAI=\[REDACTED:OPENAI_API_KEY\]/);
+});
+
+test("redacts Gemini, Mistral, Groq, Hugging Face, Perplexity, and xAI provider keys", () => {
+  const geminiKey = ["AIza", "SyFakeGeminiApiKeyExam0123456789XyZ"].join("");
+  const mistralKey = ["M9kP2xQ7vL4nR8wT", "1yB6zC3fH5jD0sA9"].join("");
+  const groqKey = ["gsk", "AbCdEfGhIjKlMnOpQrStUvWxYz0123456789AbCdEfGhIjKlMn"].join("_");
+  const hfKey = ["hf", "AbCdEfGhIjKlMnOpQrStUvWxYz0123456789"].join("_");
+  const pplxKey = ["pplx", "a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6q7r8s9t0u1v2"].join("-");
+  const xaiKey = ["xai", "AbCdEfGhIjKlMnOpQrStUvWxYz0123456789AbCdEfGh"].join("-");
+
+  const input = [
+    `GEMINI_API_KEY=${geminiKey}`,
+    `MISTRAL_API_KEY=${mistralKey}`,
+    `Groq: ${groqKey}`,
+    `HF: ${hfKey}`,
+    `Perplexity: ${pplxKey}`,
+    `xAI: ${xaiKey}`,
+  ].join("\n");
+
+  const { text, findings } = redactText(input, { redactPii: false });
+  assert.deepEqual(
+    new Set(findings.map((f) => f.ruleId)),
+    new Set([
+      "GEMINI_API_KEY",
+      "MISTRAL_API_KEY",
+      "GROQ_API_KEY",
+      "HUGGINGFACE_TOKEN",
+      "PERPLEXITY_API_KEY",
+      "XAI_API_KEY",
+    ])
+  );
+  assert.ok(text.includes("GEMINI_API_KEY=[REDACTED:GEMINI_API_KEY]"));
+  assert.ok(text.includes("MISTRAL_API_KEY=[REDACTED:MISTRAL_API_KEY]"));
+  assert.ok(!text.includes("SyFakeGeminiApiKey"));
+  assert.ok(!text.includes("M9kP2xQ7"));
+
+  // Structured JSON payloads preserve Gemini & Mistral attribution
+  const payloadRes = redactPayload(
+    { gemini_api_key: geminiKey, mistralApiKey: mistralKey },
+    { redactPii: false }
+  );
+  assert.equal(payloadRes.sanitized.gemini_api_key, "[REDACTED:GEMINI_API_KEY]");
+  assert.equal(payloadRes.sanitized.mistralApiKey, "[REDACTED:MISTRAL_API_KEY]");
 });
 
 test("redacts AWS Secret Access Key, Atlassian/Jira, GitLab, GCP, npm, and PyPI tokens", () => {
@@ -139,16 +193,20 @@ test("detects context-anchored high-entropy secrets while ignoring placeholders 
 
   const leaky = [
     `webhook_secret="${highEntropyVal}"`,
+    `STRIPE_WEBHOOK_SECRET=${highEntropyVal}`,
+    `CUSTOM_API_KEY=${highEntropyVal}`,
     `signing_secret=${hexSecret}`,
     `"client_secret": "${highEntropyVal}"`,
   ].join("\n");
 
   const { text, findings } = redactText(leaky, { redactPii: false });
-  assert.equal(findings.length, 3);
+  assert.equal(findings.length, 5);
   assert.ok(findings.every((f) => f.ruleId === "HIGH_ENTROPY_SECRET"));
   assert.ok(!text.includes(highEntropyVal));
   assert.ok(!text.includes(hexSecret));
   assert.ok(text.includes('webhook_secret="[REDACTED:HIGH_ENTROPY_SECRET]"'));
+  assert.ok(text.includes("STRIPE_WEBHOOK_SECRET=[REDACTED:HIGH_ENTROPY_SECRET]"));
+  assert.ok(text.includes("CUSTOM_API_KEY=[REDACTED:HIGH_ENTROPY_SECRET]"));
   assert.ok(text.includes('"client_secret": "[REDACTED:HIGH_ENTROPY_SECRET]"'));
 
   // Clean engineering text that must NOT trigger false positives
