@@ -1,0 +1,41 @@
+{
+  "name": "@4sails/mcp-guard",
+  "version": "0.1.0",
+  "description": "Zero-dependency MCP security middleware & CLI: deterministic secret/PII redaction, fail-closed inherited ACL filtering, and indirect prompt-injection detection for B2B Jira, Slack & Git MCP servers.",
+  "license": "MIT",
+  "type": "module",
+  "main": "./src/index.mjs",
+  "exports": {
+    ".": "./src/index.mjs"
+  },
+  "bin": {
+    "mcp-guard": "./bin/mcp-guard.mjs"
+  },
+  "scripts": {
+    "test": "node --test test/*.test.mjs",
+    "demo": "node ./bin/mcp-guard.mjs demo"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "security",
+    "claude-code",
+    "cursor",
+    "secret-scanning",
+    "pii-redaction",
+    "acl",
+    "prompt-injection",
+    "jira",
+    "slack",
+    "4sails"
+  ],
+  "author": "Mykola Mishchenko <hello@4sails.tech> (https://4sails.tech)",
+  "homepage": "https://4sails.tech/open-source/mcp-guard",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/cbip191/mcp-guard.git"
+  }
+}
