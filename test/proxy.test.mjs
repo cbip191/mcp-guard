@@ -260,6 +260,24 @@ test("E2E proxy handles ENOENT cleanly with exit code 127 and stderr diagnostic"
   assert.match(stderr, /spawn_error.*ENOENT/);
 });
 
+test("E2E proxy supports --taint-untrusted and --injection-threshold without dropping clean fields", async () => {
+  const req = JSON.stringify({ jsonrpc: "2.0", id: 30, method: "send_injection_response" });
+
+  const { code, stdout, stderr } = await runProxyCli(
+    ["--taint-untrusted", "--injection-threshold", "high"],
+    [process.execPath, MOCK_SERVER_PATH],
+    [`${req}\n`]
+  );
+
+  assert.equal(code, 0);
+  const msg = JSON.parse(stdout.trim());
+  assert.equal(msg.id, 30);
+  assert.ok(msg.result);
+  assert.match(msg.result.body, /^\[MCP_GUARD_UNTRUSTED_DATA rules=.*severity=critical/);
+  assert.ok(msg.result.body.endsWith("[/MCP_GUARD_UNTRUSTED_DATA]"));
+  assert.match(stderr, /action=tainted/);
+});
+
 test("E2E proxy forwards SIGTERM to upstream child and exits cleanly", async () => {
   const result = await new Promise((resolvePromise, reject) => {
     const child = spawn(

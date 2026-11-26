@@ -6,7 +6,13 @@ import {
   PII_RULES,
 } from "./redact.mjs";
 import { filterFactsForPrincipal } from "./acl.mjs";
-import { detectPromptInjection, INJECTION_PATTERNS } from "./injection.mjs";
+import {
+  detectPromptInjection,
+  taintUntrustedPayload,
+  normalizeForInjectionScan,
+  INJECTION_PATTERNS,
+  SEVERITY_RANK,
+} from "./injection.mjs";
 import {
   runStdioProxy,
   createFrameParser,
@@ -22,7 +28,10 @@ export {
   PII_RULES,
   filterFactsForPrincipal,
   detectPromptInjection,
+  taintUntrustedPayload,
+  normalizeForInjectionScan,
   INJECTION_PATTERNS,
+  SEVERITY_RANK,
   runStdioProxy,
   createFrameParser,
   encodeFrame,
@@ -33,13 +42,15 @@ export {
  * End-to-end B2B MCP response guard:
  * 1. Enforces fail-closed inherited ACLs (if callerScopes & facts are provided)
  * 2. Deterministically strips secrets & PII
- * 3. Flags indirect prompt-injection attempts
+ * 3. Flags (or non-destructively quarantines) indirect prompt-injection attempts
  */
 export function guardMcpResponse(payload, options = {}) {
   const {
     callerScopes = null,
     redactPii = true,
     allowEmailDomains = [],
+    injectionThreshold = "medium",
+    taintUntrusted = false,
   } = options;
 
   let working = payload;
@@ -56,12 +67,23 @@ export function guardMcpResponse(payload, options = {}) {
     };
   }
 
-  const { sanitized, findings } = redactPayload(working, {
+  const { sanitized: redacted, findings } = redactPayload(working, {
     redactPii,
     allowEmailDomains,
   });
 
-  const injectionAlerts = detectPromptInjection(sanitized);
+  let sanitized = redacted;
+  let injectionAlerts;
+  let taintedPaths = [];
+
+  if (taintUntrusted) {
+    const taintRes = taintUntrustedPayload(redacted, { threshold: injectionThreshold });
+    sanitized = taintRes.tainted;
+    injectionAlerts = taintRes.alerts;
+    taintedPaths = taintRes.taintedPaths;
+  } else {
+    injectionAlerts = detectPromptInjection(redacted, { threshold: injectionThreshold });
+  }
 
   return {
     sanitized,
@@ -69,6 +91,7 @@ export function guardMcpResponse(payload, options = {}) {
       secretsAndPiiRedacted: findings.length,
       findings,
       injectionAlerts,
+      taintedPaths,
       acl: aclReport,
       safe: findings.length === 0 && injectionAlerts.length === 0,
     },
