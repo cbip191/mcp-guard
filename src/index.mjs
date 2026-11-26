@@ -7,7 +7,12 @@ import {
 } from "./redact.mjs";
 import { filterFactsForPrincipal } from "./acl.mjs";
 import { detectPromptInjection, INJECTION_PATTERNS } from "./injection.mjs";
-import { runStdioProxy } from "./proxy.mjs";
+import {
+  runStdioProxy,
+  createFrameParser,
+  encodeFrame,
+  inspectFrame,
+} from "./proxy.mjs";
 
 export {
   redactText,
@@ -19,6 +24,9 @@ export {
   detectPromptInjection,
   INJECTION_PATTERNS,
   runStdioProxy,
+  createFrameParser,
+  encodeFrame,
+  inspectFrame,
 };
 
 /**
