@@ -202,7 +202,7 @@ export const SECRET_RULES = [
     id: "PRIVATE_KEY_BLOCK",
     severity: "critical",
     pattern:
-      /-----BEGIN (?:(?:RSA|EC|DSA|OPENSSH|ENCRYPTED|PGP|PKCS8)\s+)*PRIVATE KEY(?:\s+BLOCK)?-----[\s\S]*?-----END (?:(?:RSA|EC|DSA|OPENSSH|ENCRYPTED|PGP|PKCS8)\s+)*PRIVATE KEY(?:\s+BLOCK)?-----|-----BEGIN (?:(?:RSA|EC|DSA|OPENSSH|ENCRYPTED|PGP|PKCS8)\s+)*PRIVATE KEY(?:\s+BLOCK)?-----(?:[\r\n]+(?:Proc-Type:[^\r\n]*|DEK-Info:[^\r\n]*|Version:[^\r\n]*|[\t ]*[A-Za-z0-9+/=]{16,}[\t ]*))+|-----BEGIN (?:(?:RSA|EC|DSA|OPENSSH|ENCRYPTED|PGP|PKCS8)\s+)*PRIVATE KEY(?:\s+BLOCK)?-----[\t ]+[A-Za-z0-9+/=]{24,}/g,
+      /-----BEGIN (?:(?:RSA|EC|DSA|OPENSSH|ENCRYPTED|PGP|PKCS8)\s+)*PRIVATE KEY(?:\s+BLOCK)?-----(?:(?:[\r\n]+(?:Proc-Type:[^\r\n]*|DEK-Info:[^\r\n]*|Version:[^\r\n]*|[\t ]*[A-Za-z0-9+/=]{16,}[\t ]*))+(?:[\r\n]+-----END (?:(?:RSA|EC|DSA|OPENSSH|ENCRYPTED|PGP|PKCS8)\s+)*PRIVATE KEY(?:\s+BLOCK)?-----)?|[\t ]+[A-Za-z0-9+/=]{24,})/g,
   },
   {
     id: "DATABASE_URI_CREDENTIALS",
@@ -225,7 +225,7 @@ export const SECRET_RULES = [
     severity: "high",
     entropy: true,
     pattern:
-      /(\b(?:(?:[A-Za-z0-9]{1,24}[_-]){1,3})?(?:api[_-]?key|apikey|api[_-]?secret|client[_-]?secret|secret[_-]?key|access[_-]?key|access[_-]?token|auth[_-]?token|refresh[_-]?token|private[_-]?token|signing[_-]?secret|signing[_-]?key|webhook[_-]?secret|encryption[_-]?key|master[_-]?key|password|passwd|pwd|db[_-]?pass(?:word)?|secret|token|credential)\b\\?["']?\s*[:=]\s*\\?["']?|\b(?:[a-z][A-Za-z0-9]{0,24})?(?:apiKey|ApiKey|apiSecret|ApiSecret|clientSecret|ClientSecret|secretKey|SecretKey|accessKey|AccessKey|accessToken|AccessToken|authToken|AuthToken|refreshToken|RefreshToken|privateToken|PrivateToken|signingSecret|SigningSecret|signingKey|SigningKey|webhookSecret|WebhookSecret|encryptionKey|EncryptionKey|masterKey|MasterKey|dbPassword|DbPassword)\b\\?["']?\s*[:=]\s*\\?["']?)([^\s"'\\,;{}()[\]]{16,256})/gi,
+      /((?:(?<=^|[\s"'\\,;{}()[\]._-])(?:api[_-]?key|apikey|api[_-]?secret|client[_-]?secret|secret[_-]?key|access[_-]?key|access[_-]?token|auth[_-]?token|refresh[_-]?token|private[_-]?token|signing[_-]?secret|signing[_-]?key|webhook[_-]?secret|encryption[_-]?key|master[_-]?key|password|passwd|pwd|db[_-]?pass(?:word)?|secret|token|credential)|(?<=^|[\s"'\\,;{}()[\]._-]|[a-z])(?:ApiKey|ApiSecret|ClientSecret|SecretKey|AccessKey|AccessToken|AuthToken|RefreshToken|PrivateToken|SigningSecret|SigningKey|WebhookSecret|EncryptionKey|MasterKey|DbPassword))\b\\?["']?\s*[:=]\s*\\?["']?)([^\s"'\\,;{}()[\]]{16,256})/gi,
     valueGroup: 2,
     prefixGroup: 1,
     validate: (val) => isHighEntropySecretValue(val),
@@ -236,7 +236,7 @@ export const PII_RULES = [
   {
     id: "EMAIL_ADDRESS",
     severity: "medium",
-    pattern: /\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b/g,
+    pattern: /(?<![A-Za-z0-9._%+-])[A-Za-z0-9._%+-]{1,64}@[A-Za-z0-9.-]{1,253}\.[A-Za-z]{2,24}\b/g,
   },
   {
     id: "PHONE_NUMBER",

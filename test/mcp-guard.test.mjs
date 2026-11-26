@@ -389,10 +389,30 @@ test("guardMcpResponse runs ACL + redaction + injection checks together", () => 
 
   assert.equal(sanitized.facts.length, 1);
   assert.match(sanitized.facts[0].statement, /\[REDACTED:SLACK_TOKEN\]/);
+  assert.equal(report.acl.enforced, true);
+  assert.equal(report.acl.blocked, false);
   assert.equal(report.acl.droppedCount, 1);
   assert.equal(report.secretsAndPiiRedacted, 1);
   assert.equal(report.injectionAlerts.length, 1);
   assert.equal(report.safe, false);
+});
+
+test("guardMcpResponse fails closed when callerScopes is passed for a payload without a .facts array", () => {
+  const rawJiraPayload = {
+    jsonrpc: "2.0",
+    id: 7,
+    result: { issue: "PIN-108", summary: "Confidential client margin" },
+  };
+
+  const { sanitized, report } = guardMcpResponse(rawJiraPayload, {
+    callerScopes: ["jira:project:HBR"],
+  });
+
+  assert.equal(sanitized, null);
+  assert.equal(report.safe, false);
+  assert.equal(report.acl.enforced, false);
+  assert.equal(report.acl.blocked, true);
+  assert.equal(report.acl.reason, "unsupported_payload_shape_for_acl");
 });
 
 test("redactPayload preserves non-string primitives and nested arrays", () => {

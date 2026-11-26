@@ -1,0 +1,30 @@
+name: Bug Report
+description: Report a bug, false positive, or regression in mcp-guard
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        If you are reporting a **security vulnerability** (fail-open proxy bug, redaction bypass, quarantine escape, or ReDoS), please use [GitHub Private Security Advisories](https://github.com/cbip191/mcp-guard/security/advisories/new) instead of a public issue.
+  - type: textarea
+    id: description
+    attributes:
+      label: What happened?
+      description: Clear description of the bug or false positive.
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Minimal Reproduction
+      description: Include an anonymized sample payload or CLI command (never paste real secrets!).
+      render: shell
+    validations:
+      required: true
+  - type: input
+    id: env
+    attributes:
+      label: Environment
+      placeholder: "Node.js v22.x, macOS / Linux / Windows, mcp-guard v0.2.0"
+    validations:
+      required: true

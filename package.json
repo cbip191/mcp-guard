@@ -1,19 +1,34 @@
 {
   "name": "@4sails/mcp-guard",
-  "version": "0.1.0",
-  "description": "Zero-dependency MCP security middleware & CLI: deterministic secret/PII redaction, fail-closed inherited ACL filtering, and indirect prompt-injection detection for B2B Jira, Slack & Git MCP servers.",
+  "version": "0.2.0",
+  "description": "Zero-dependency bidirectional MCP firewall, secret/PII DLP proxy, ACL gate, and prompt-injection quarantine middleware for Claude Code, Cursor, and B2B AI agents.",
   "license": "MIT",
   "type": "module",
   "main": "./src/index.mjs",
+  "types": "./src/index.d.ts",
   "exports": {
-    ".": "./src/index.mjs"
+    ".": {
+      "types": "./src/index.d.ts",
+      "import": "./src/index.mjs"
+    }
   },
   "bin": {
     "mcp-guard": "./bin/mcp-guard.mjs"
   },
+  "files": [
+    "bin/",
+    "src/",
+    "README.md",
+    "LICENSE"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
   "scripts": {
-    "test": "node --test test/*.test.mjs",
-    "demo": "node ./bin/mcp-guard.mjs demo"
+    "check": "node ./scripts/check.mjs",
+    "test": "node ./scripts/test.mjs",
+    "demo": "node ./bin/mcp-guard.mjs demo",
+    "prepublishOnly": "npm run check && npm test"
   },
   "engines": {
     "node": ">=20.0.0"
@@ -22,6 +37,8 @@
     "mcp",
     "model-context-protocol",
     "security",
+    "firewall",
+    "dlp",
     "claude-code",
     "cursor",
     "secret-scanning",
@@ -34,8 +51,11 @@
   ],
   "author": "Mykola Mishchenko <hello@4sails.tech> (https://4sails.tech)",
   "homepage": "https://4sails.tech/open-source/mcp-guard",
+  "bugs": {
+    "url": "https://github.com/cbip191/mcp-guard/issues"
+  },
   "repository": {
     "type": "git",
-    "url": "https://github.com/cbip191/mcp-guard.git"
+    "url": "git+https://github.com/cbip191/mcp-guard.git"
   }
 }

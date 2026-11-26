@@ -1,0 +1,130 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  check:
+    name: Static checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+      - run: npm run check
+
+  test:
+    name: Test (${{ matrix.os }}, Node ${{ matrix.node }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            node: 20
+          - os: ubuntu-latest
+            node: 22
+            coverage: true
+          - os: ubuntu-latest
+            node: 24
+          - os: macos-latest
+            node: 22
+          - os: windows-latest
+            node: 22
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: ${{ matrix.node }}
+      - name: Run unit, proxy, CLI & ReDoS tests
+        run: ${{ matrix.coverage && 'node ./scripts/test.mjs --experimental-test-coverage' || 'npm test' }}
+      - name: Run demo smoke test
+        run: npm run demo
+
+  types:
+    name: TypeScript declarations
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+      - name: Type-check src/index.d.ts against test/types.check.ts
+        run: |
+          TYPE_DIR=$(mktemp -d)
+          npm --prefix "$TYPE_DIR" install --no-audit --no-fund typescript@5 @types/node@22
+          "$TYPE_DIR/node_modules/.bin/tsc" \
+            --noEmit --strict --target ES2022 \
+            --module NodeNext --moduleResolution NodeNext \
+            --typeRoots "$TYPE_DIR/node_modules/@types" \
+            --types node \
+            test/types.check.ts
+
+  pack-smoke:
+    name: Tarball install smoke test
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+      - name: Pack, install in clean temp dir, and verify CLI + ESM import
+        run: |
+          TARBALL=$(npm pack --silent)
+          SMOKE_DIR=$(mktemp -d)
+          cp "$TARBALL" "$SMOKE_DIR/"
+          cd "$SMOKE_DIR"
+          npm init -y >/dev/null
+          npm install --no-audit --no-fund "./$TARBALL"
+          ./node_modules/.bin/mcp-guard --version
+          node --input-type=module -e '
+            import assert from "node:assert/strict";
+            import * as guard from "@4sails/mcp-guard";
+            assert.equal(typeof guard.guardMcpResponse, "function");
+            assert.equal(typeof guard.runStdioProxy, "function");
+            const res = guard.redactText("IP 192.168.100.1");
+            assert.equal(res.text, "IP 192.168.100.1");
+          '
+
+  ci-pass:
+    name: ci-pass
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    needs: [check, test, types, pack-smoke]
+    if: always()
+    steps:
+      - name: Verify all CI jobs succeeded
+        run: |
+          for result in \
+            "${{ needs.check.result }}" \
+            "${{ needs.test.result }}" \
+            "${{ needs.types.result }}" \
+            "${{ needs.pack-smoke.result }}"; do
+            if [ "$result" != "success" ]; then
+              echo "CI gate failed: job result was '$result'"
+              exit 1
+            fi
+          done
+          echo "All CI gates passed."

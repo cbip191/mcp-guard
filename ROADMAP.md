@@ -1,43 +1,41 @@
-# `mcp-guard` — Architecture Audit & Engineering Roadmap (`v0.2` → `v1.0`)
+# `mcp-guard` — Engineering Review & Roadmap (`v0.2` → `v1.0`)
 
-> **Positioning:** The zero-dependency, bidirectional firewall & DLP proxy for `mcp.json` (`npx -y @4sails/mcp-guard`) — deterministic, sub-millisecond, policy-driven guardrails for *both* directions of any stdio/HTTP MCP server.
+> **Positioning:** The zero-dependency, bidirectional firewall & DLP proxy for `mcp.json` — deterministic, sub-millisecond, policy-driven guardrails for *both* directions of any stdio/HTTP MCP server.
 
 ---
 
-## 1. Architecture & Code Audit Summary (`v0.1.0` Baseline)
+## 1. Internal Review Summary (`v0.1.0` → `v0.2.0`)
 
-An independent engineering audit of `v0.1.0` identified what works well and what must be fixed before broad developer adoption:
+An internal engineering review of `v0.1.0` established the core architectural principles and identified the correctness gaps prioritized for `v0.2.0`–`v1.0.0`:
 
-### What Works Well
-- **Zero npm dependencies** (pure Node.js 20+ built-ins: `node:test`, `node:child_process`, `node:readline`).
-- **Small, pure, immutable core functions** (`redactText`, `redactPayload`, `filterFactsForPrincipal`, `detectPromptInjection`).
-- **Clean `stderr` vs `stdout` stream separation** in `src/proxy.mjs` so audit telemetry never corrupts MCP JSON-RPC frames.
-- **Sound scope-intersection primitive** in `src/acl.mjs` (dropping unauthorized facts and stripping private citations).
+### Core Strengths to Preserve
+- **Zero npm runtime dependencies** (pure Node.js 20+ built-ins: `node:test`, `node:child_process`, `node:http`).
+- **Small, pure, immutable core functions** (`redactText`, `redactPayload`, `filterFactsForPrincipal`, `detectPromptInjection`, `taintUntrustedPayload`, `inspectFrame`).
+- **Strict `stderr` vs `stdout` stream separation** in `src/proxy.mjs` so audit telemetry never corrupts MCP JSON-RPC frames.
+- **Fail-closed citation-scope ACL primitive** in `src/acl.mjs` & `src/index.mjs` (dropping unauthorized facts, stripping private citations, and failing closed when `callerScopes` is passed against unrecognized payload shapes).
 
-### Critical Weak Points & Bugs to Fix in `v0.2.0`
-1. **One-way proxy blindness (`src/proxy.mjs:19`):** `process.stdin.pipe(child.stdin)` does not inspect outbound tool calls (agent → MCP server), allowing `.env`/secret leaks into Jira, Slack, or GitHub.
-2. **Exit race condition & fail-open fallback (`src/proxy.mjs:29-34, 66-68`):** Exiting on child `"exit"` instead of `"close"` can truncate buffered JSON-RPC responses; unparseable/multi-line frames fall through unredacted; no `ENOENT`/`EPIPE`/`SIGINT` handling; blocking mode misses notifications and echoes attacker injection snippets in `error.data`.
-3. **Dead code & IPv4 corruption (`src/redact.mjs:38-46, 76-79`):** `OPENAI_API_KEY` matches `sk-ant-...` before `ANTHROPIC_API_KEY` (making Anthropic rule unreachable); `PHONE_NUMBER` accepts dots without a leading boundary, corrupting IPv4 addresses (`192.168.100.1` → `[REDACTED:PHONE_NUMBER].1`) and version strings; misses AWS Secret Access Keys, Atlassian/Jira tokens (`ATATT3x...`), password-only Redis URIs (`redis://:pass@host`), GitLab PATs, and object keys; recompiles regexes per string leaf.
-4. **High false-positive injection rules (`src/injection.mjs:10-31`):** Triggers on routine engineering tickets (`"act as a proxy"`, `"bash setup.sh .env"`, `"send a reset token"`), lacks Unicode normalization, and lacks a non-destructive taint/quarantine mode.
-5. **Fail-open ACL gap (`src/index.mjs:33`, `src/acl.mjs`):** `acl.mjs` isn't wired into `proxy.mjs` and silently skips enforcement when passed real upstream Jira/Slack/GitHub MCP JSON instead of a `.facts` array.
-6. **Onboarding friction (`bin/mcp-guard.mjs`, `package.json`, `README.md`):** Not published to npm (`npx`), no copy-paste Claude Code / Cursor / Claude Desktop `mcp.json` snippet, no `mcp-guard.json` policy file, and no structured JSONL audit log.
+### Key Gaps Addressed in `v0.2.0`
+- Bidirectional stdio proxy (`agent → MCP` secret DLP with opt-in `--redact-outbound-pii`, plus `MCP → agent` secret/PII scrubbing and prompt-injection blocking/quarantine).
+- Dual `NDJSON` + `Content-Length` framing, fail-closed unparseable frame scrubbing, spec-compliant JSON-RPC blocking (without echoing attacker snippets), stdout drain before exit, `ENOENT`/`EPIPE`/`SIGINT`/`SIGTERM` handling, and mock-server E2E tests.
+- Fixed `ANTHROPIC_API_KEY` & `OPENROUTER_API_KEY` precedence ahead of `OPENAI_API_KEY`, IPv4/semver-safe `PHONE_NUMBER`, password-only Redis/AMQP URIs, 25+ secret/AI-provider detectors (including Gemini, Mistral, AWS Secret, Atlassian/Jira, GitLab, GCP, npm, PyPI, encrypted/truncated PEMs, Shannon entropy), object-key redaction, JSON-RPC envelope preservation, `WeakSet` cycle guards, and linear-time ReDoS tests.
+- Eliminated engineering false positives in `src/injection.mjs`, added NFKC + zero-width/Unicode-tag normalization, severity thresholds (`--injection-threshold`), and non-destructive `--taint-untrusted` quarantine mode.
 
 ---
 
 ## 2. Prioritized Engineering Roadmap
 
-### Milestone `v0.2.0` — Correctness, Bidirectional Proxy & npm DX ("Stop Breaking Real Traffic")
-- **#1 (`P0`) — Fix `src/redact.mjs` bugs & expand real B2B secret rules:** Fix `ANTHROPIC_API_KEY` precedence, IPv4-safe phone matching, password-only DB URIs, AWS Secret Access Keys, Jira `ATATT3x...` / GitLab `glpat-` / GCP `AIza...` tokens, object-key redaction, case-insensitive `allowEmailDomains`, circular-ref guard, envelope skipping, and pre-compiled regexes + Shannon entropy checks.
-- **#2 (`P0`) — Rewrite `src/proxy.mjs` into a bidirectional JSON-RPC proxy + integration tests:** Inspect both `stdin` and `stdout`, wait for `"close"` drain, handle `ENOENT`/`EPIPE`/`SIGINT`/`SIGTERM`, remove fail-open fallback (support NDJSON + `Content-Length`), fix JSON-RPC blocking semantics (never echo snippets back to LLM), wire `--allow-domain`, and add mock-server E2E tests (`test/proxy.test.mjs`).
-- **#3 (`P0`) — Fix `src/injection.mjs` false positives + add `--taint-untrusted` quarantine mode:** Remove broad triggers (`act as`, `bash ... .env`, `send ... token`), add NFKC/zero-width normalization, split high-confidence vs. heuristic thresholds (`--injection-threshold`), and support non-destructive taint-wrapping for untrusted external content.
-- **#4 (`P1`) — Publish `@4sails/mcp-guard` to npm + `mcp.json` quickstart & TypeScript types:** Publish `0.2.0` for `npx -y @4sails/mcp-guard`, put Claude Code / Cursor / Claude Desktop `mcp.json` snippets at top of README, read version from `package.json`, add `--flag=value`, `scan -` (stdin), JSONL input, and `src/index.d.ts`.
+### Milestone `v0.2.0` — Correctness, Bidirectional Proxy & Contributor Guardrails
+- [x] **#1 (`P0`) — Fix `src/redact.mjs` bugs & expand real B2B/AI secret rules:** `ANTHROPIC_API_KEY`/`OPENROUTER_API_KEY` precedence, IPv4-safe phone matching, password-only DB URIs, AWS Secret / Atlassian / GitLab / GCP / Gemini / Mistral / Groq / HF / Perplexity / xAI / npm / PyPI rules, object-key redaction, case-insensitive `allowEmailDomains`, `WeakSet` cycle guard, envelope skipping, precompiled regexes + Shannon entropy.
+- [x] **#2 (`P0`) — Rewrite `src/proxy.mjs` into a bidirectional JSON-RPC proxy + E2E tests:** Inspect both `stdin` (secrets always; PII opt-in via `--redact-outbound-pii`) and `stdout`, wait for stdout drain + child `close`, handle `ENOENT`/`EPIPE`/`SIGINT`/`SIGTERM`, never fail open on unparseable frames, support NDJSON + `Content-Length`, fix JSON-RPC blocking semantics, wire `--allow-domain`, and add mock-server E2E tests (`test/proxy.test.mjs`).
+- [x] **#3 (`P0`) — Fix `src/injection.mjs` false positives + add `--taint-untrusted` quarantine mode:** Remove noisy triggers (`act as`, `bash ... .env`, `send ... token`), add NFKC/zero-width/Unicode-tag normalization, catch role-turn credential uploads, split severity thresholds (`--injection-threshold`), and support non-destructive quarantine wrapping.
+- [ ] **#4 (`P1`) — `v0.2.0` DX, TypeScript types, CI guardrails & npm publish:** Dynamic version, `--flag=value`, `scan -` (stdin), JSONL input, `src/index.d.ts`, `scripts/check.mjs`, GitHub Actions CI + ReDoS tests, `SECURITY.md`/`CONTRIBUTING.md`/`CHANGELOG.md`, and publish `@4sails/mcp-guard@0.2.0` to npm.
 
 ### Milestone `v0.3.0` — Policy Engine, Auditability & 10-Second Onboarding
-- **#5 (`P1`) — Declarative `mcp-guard.json` policy file & tool-level ACLs:** Support `tools.allow`/`tools.deny` globs and `tools.argConstraints` (`jira_*: { project_key: ["HBR"] }`, `slack_*: { channel_id: [...] }`, `github_*: { repo: [...] }`) enforced before upstream execution; make `guardMcpResponse` fail closed when `callerScopes` is passed against unrecognized shapes.
-- **#6 (`P1`) — Structured JSONL `--audit-log` + `mcp-guard audit` summary CLI:** Append-only `{ ts, dir, method, tool, action, rules, secretHashes, latencyMs }` (never raw secrets) plus a terminal summary command.
-- **#7 (`P1`) — `mcp-guard wrap` / `unwrap` auto-installer:** Automatically wrap/revert stdio servers inside `~/.cursor/mcp.json` or Claude Desktop config with `--dry-run` and `.bak` backup.
+- [ ] **#5 (`P1`) — Declarative `mcp-guard.json` policy file & tool-level ACLs:** Support `tools.allow`/`tools.deny` globs and `tools.argConstraints` (`jira_*: { project_key: ["HBR"] }`, `slack_*: { channel_id: [...] }`, `github_*: { repo: [...] }`) enforced before upstream execution in `mcp-guard proxy`.
+- [ ] **#6 (`P1`) — Structured JSONL `--audit-log` + `mcp-guard audit` summary CLI:** Append-only `{ ts, dir, method, tool, action, rules, secretHashes, latencyMs }` (never raw secrets) plus a terminal summary command.
+- [ ] **#7 (`P1`) — `mcp-guard wrap` / `unwrap` auto-installer:** Automatically wrap/revert stdio servers inside `.cursor/mcp.json` or Claude Desktop config with `--dry-run` and `.bak` backup.
 
 ### Milestone `v1.0.0` — Production MCP Firewall
-- **#8 (`P2`) — Streamable HTTP / SSE MCP transport proxy:** `mcp-guard http-proxy --upstream https://... --port 8787` using zero-dep `node:http` & `fetch`.
-- **#9 (`P2`) — Session-scoped deterministic pseudonymization:** Replace PII with consistent session tokens (`[EMAIL_1]`, `[EMAIL_2]`) while keeping secrets strictly one-way redacted.
-- **#10 (`P2`) — Public benchmark & fixture regression corpus:** Anonymized Jira/Slack/GitHub transcript fixtures in `test/fixtures/` enforcing 0% clean false positives, 100% secret catch rate, and `<2ms` p99 proxy latency published in `README.md`.
+- [ ] **#8 (`P2`) — Streamable HTTP / SSE MCP transport proxy:** `mcp-guard http-proxy --upstream https://... --port 8787` using zero-dep `node:http` & `fetch`.
+- [ ] **#9 (`P2`) — Session-scoped deterministic pseudonymization:** Replace PII with consistent session tokens (`[EMAIL_1]`, `[EMAIL_2]`) while keeping secrets strictly one-way redacted.
+- [ ] **#10 (`P2`) — Public benchmark & fixture regression corpus:** Anonymized Jira/Slack/GitHub transcript fixtures in `test/fixtures/` enforcing 0% clean false positives, 100% secret catch rate, and `<2ms` p99 proxy latency published in `README.md`.

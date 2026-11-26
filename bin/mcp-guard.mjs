@@ -2,6 +2,11 @@
 import { readFileSync } from "node:fs";
 import { guardMcpResponse, runStdioProxy, SEVERITY_RANK } from "../src/index.mjs";
 
+const PKG = JSON.parse(
+  readFileSync(new URL("../package.json", import.meta.url), "utf8")
+);
+const VERSION = PKG.version;
+
 const SAMPLE_STRIPE_KEY = ["sk", "test", "51N9xFakeStripeKeyExample987654321"].join("_");
 
 const DEMO_PAYLOAD = {
@@ -35,24 +40,69 @@ const DEMO_PAYLOAD = {
   ],
 };
 
+const VALUE_FLAGS = new Set(["--scopes", "--allow-domain", "--injection-threshold"]);
+
 function printHelp() {
-  console.log(`mcp-guard v0.1.0 — B2B MCP security middleware & scanner (by 4sails.tech)
+  console.log(`mcp-guard v${VERSION} — Zero-dependency bidirectional MCP firewall & scanner (by 4sails.tech)
 
 Usage:
   mcp-guard demo
       Run a built-in multi-client agency audit (secrets, PII, ACL isolation, prompt injection).
 
-  mcp-guard scan <file.json> [--scopes scope1,scope2] [--allow-domain agency.dev] [--injection-threshold medium] [--taint-untrusted]
-      Scan a Jira, Slack, or MCP JSON export and exit with code 1 if leaks or injections are found.
+  mcp-guard scan <file.json|-> [--jsonl] [--scopes s1,s2] [--allow-domain agency.dev] [--no-pii]
+                 [--injection-threshold <low|medium|high|critical>] [--taint-untrusted]
+      Scan a JSON or JSONL export (or '-' for stdin). Exits 0 if clean, 1 if findings exist, 2 on error.
 
-  mcp-guard proxy [--block-injections] [--taint-untrusted] [--injection-threshold <low|medium|high|critical>] [--no-pii] [--allow-domain agency.dev] -- <upstream-mcp-command> [args...]
-      Wrap any stdio MCP server and bidirectionally scrub secrets/PII on stdin & stdout JSON-RPC frames.
+  mcp-guard proxy [--block-injections] [--taint-untrusted] [--injection-threshold <low|medium|high|critical>]
+                  [--no-pii] [--redact-outbound-pii] [--allow-domain agency.dev] -- <upstream-mcp-command> [args...]
+      Wrap any stdio MCP server: always scrubs outbound secrets (opt-in PII via --redact-outbound-pii) and
+      scrubs inbound secrets/PII + guards against indirect prompt injection.
+
+Options:
+  -v, --version    Print version and exit
+  -h, --help       Print this help message
 `);
+}
+
+function getFlagValue(args, flag) {
+  const prefix = `${flag}=`;
+  for (let i = 0; i < args.length; i++) {
+    if (args[i] === flag) {
+      if (i + 1 >= args.length) {
+        console.error(`Error: missing value for ${flag}`);
+        process.exit(2);
+      }
+      return args[i + 1];
+    }
+    if (args[i].startsWith(prefix)) {
+      return args[i].slice(prefix.length);
+    }
+  }
+  return null;
+}
+
+function extractPositionalArgs(args) {
+  const positionals = [];
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i];
+    if (arg === "-") {
+      positionals.push(arg);
+      continue;
+    }
+    if (arg.startsWith("--")) {
+      if (!arg.includes("=") && VALUE_FLAGS.has(arg)) {
+        i++; // skip value token
+      }
+      continue;
+    }
+    positionals.push(arg);
+  }
+  return positionals;
 }
 
 function parseInjectionThreshold(args) {
   const raw = getFlagValue(args, "--injection-threshold");
-  if (!raw) return "medium";
+  if (raw === null) return "medium";
   const normalized = raw.trim().toLowerCase();
   if (!Object.prototype.hasOwnProperty.call(SEVERITY_RANK, normalized)) {
     console.error(
@@ -63,17 +113,78 @@ function parseInjectionThreshold(args) {
   return normalized;
 }
 
-function getFlagValue(args, flag) {
-  const prefix = `${flag}=`;
-  for (let i = 0; i < args.length; i++) {
-    if (args[i] === flag && i + 1 < args.length) {
-      return args[i + 1];
+function readInputSource(filePath) {
+  try {
+    if (filePath === "-") {
+      return readFileSync(0, "utf8");
     }
-    if (args[i].startsWith(prefix)) {
-      return args[i].slice(prefix.length);
+    return readFileSync(filePath, "utf8");
+  } catch (err) {
+    if (err?.code === "ENOENT") {
+      console.error(`Error: file not found: ${filePath}`);
+    } else if (err?.code === "EISDIR") {
+      console.error(`Error: expected a file path, got a directory: ${filePath}`);
+    } else if (err?.code === "EACCES") {
+      console.error(`Error: permission denied reading: ${filePath}`);
+    } else {
+      console.error(`Error: failed to read ${filePath}: ${err?.message || err}`);
+    }
+    process.exit(2);
+  }
+}
+
+function parseJsonOrJsonl(raw, forceJsonl, sourceLabel) {
+  if (!forceJsonl) {
+    try {
+      return { format: "json", data: JSON.parse(raw) };
+    } catch (jsonErr) {
+      const nonEmptyLines = raw
+        .split(/\r?\n/)
+        .map((text, idx) => ({ line: idx + 1, text: text.trim() }))
+        .filter((entry) => entry.text.length > 0);
+
+      if (nonEmptyLines.length > 1) {
+        const records = [];
+        for (const entry of nonEmptyLines) {
+          try {
+            records.push({ line: entry.line, value: JSON.parse(entry.text) });
+          } catch (lineErr) {
+            console.error(
+              `Error: invalid JSONL at ${sourceLabel}:${entry.line}: ${lineErr.message}`
+            );
+            process.exit(2);
+          }
+        }
+        return { format: "jsonl", records };
+      }
+
+      console.error(`Error: invalid JSON in ${sourceLabel}: ${jsonErr.message}`);
+      process.exit(2);
     }
   }
-  return null;
+
+  const nonEmptyLines = raw
+    .split(/\r?\n/)
+    .map((text, idx) => ({ line: idx + 1, text: text.trim() }))
+    .filter((entry) => entry.text.length > 0);
+
+  if (nonEmptyLines.length === 0) {
+    console.error(`Error: no JSONL records found in ${sourceLabel}`);
+    process.exit(2);
+  }
+
+  const records = [];
+  for (const entry of nonEmptyLines) {
+    try {
+      records.push({ line: entry.line, value: JSON.parse(entry.text) });
+    } catch (lineErr) {
+      console.error(
+        `Error: invalid JSONL at ${sourceLabel}:${entry.line}: ${lineErr.message}`
+      );
+      process.exit(2);
+    }
+  }
+  return { format: "jsonl", records };
 }
 
 const args = process.argv.slice(2);
@@ -81,6 +192,11 @@ const cmd = args[0];
 
 if (!cmd || cmd === "-h" || cmd === "--help") {
   printHelp();
+  process.exit(0);
+}
+
+if (cmd === "-v" || cmd === "--version") {
+  console.log(`mcp-guard v${VERSION}`);
   process.exit(0);
 }
 
@@ -107,26 +223,66 @@ if (cmd === "demo") {
 }
 
 if (cmd === "scan") {
-  const filePath = args[1];
+  const scanArgs = args.slice(1);
+  const positionals = extractPositionalArgs(scanArgs);
+  const filePath = positionals[0];
+
   if (!filePath) {
-    console.error("Error: specify a JSON file path (e.g. mcp-guard scan payload.json)");
+    console.error("Error: specify a JSON/JSONL file path or '-' for stdin (e.g. mcp-guard scan payload.json)");
     process.exit(2);
   }
-  const raw = readFileSync(filePath, "utf8");
-  const parsed = JSON.parse(raw);
-  const scopesRaw = getFlagValue(args, "--scopes");
-  const allowDomainRaw = getFlagValue(args, "--allow-domain");
-  const injectionThreshold = parseInjectionThreshold(args);
 
-  const result = guardMcpResponse(parsed, {
-    callerScopes: scopesRaw ? scopesRaw.split(",").map((s) => s.trim()) : null,
+  const scopesRaw = getFlagValue(scanArgs, "--scopes");
+  const allowDomainRaw = getFlagValue(scanArgs, "--allow-domain");
+  const injectionThreshold = parseInjectionThreshold(scanArgs);
+  const forceJsonl = scanArgs.includes("--jsonl");
+
+  const guardOpts = {
+    callerScopes: scopesRaw ? scopesRaw.split(",").map((s) => s.trim()).filter(Boolean) : null,
+    redactPii: !scanArgs.includes("--no-pii"),
     allowEmailDomains: allowDomainRaw
-      ? allowDomainRaw.split(",").map((s) => s.trim().toLowerCase())
+      ? allowDomainRaw.split(",").map((s) => s.trim().toLowerCase()).filter(Boolean)
       : [],
     injectionThreshold,
-    taintUntrusted: args.includes("--taint-untrusted"),
-  });
+    taintUntrusted: scanArgs.includes("--taint-untrusted"),
+  };
 
+  const raw = readInputSource(filePath);
+  const sourceLabel = filePath === "-" ? "stdin" : filePath;
+  const parsed = parseJsonOrJsonl(raw, forceJsonl, sourceLabel);
+
+  if (parsed.format === "jsonl") {
+    const records = [];
+    let totalRedacted = 0;
+    let totalAlerts = 0;
+    let unsafeRecords = 0;
+
+    for (const entry of parsed.records) {
+      const res = guardMcpResponse(entry.value, guardOpts);
+      totalRedacted += res.report.secretsAndPiiRedacted;
+      totalAlerts += res.report.injectionAlerts.length;
+      if (!res.report.safe) unsafeRecords++;
+      records.push({
+        line: entry.line,
+        ...res.report,
+      });
+    }
+
+    const aggregate = {
+      format: "jsonl",
+      recordsScanned: records.length,
+      unsafeRecords,
+      secretsAndPiiRedacted: totalRedacted,
+      injectionAlertsCount: totalAlerts,
+      safe: unsafeRecords === 0,
+      records,
+    };
+
+    console.log(JSON.stringify(aggregate, null, 2));
+    process.exit(aggregate.safe ? 0 : 1);
+  }
+
+  const result = guardMcpResponse(parsed.data, guardOpts);
   console.log(JSON.stringify(result.report, null, 2));
   process.exit(result.report.safe ? 0 : 1);
 }
@@ -145,6 +301,7 @@ if (cmd === "proxy") {
 
   runStdioProxy(upstreamCmd, upstreamArgs, {
     redactPii: !flags.includes("--no-pii"),
+    redactOutboundPii: flags.includes("--redact-outbound-pii"),
     blockInjections: flags.includes("--block-injections"),
     taintUntrusted: flags.includes("--taint-untrusted"),
     injectionThreshold,
