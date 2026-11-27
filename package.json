@@ -27,6 +27,7 @@
   "scripts": {
     "check": "node ./scripts/check.mjs",
     "test": "node ./scripts/test.mjs",
+    "benchmark": "node ./scripts/benchmark.mjs",
     "demo": "node ./bin/mcp-guard.mjs demo",
     "prepublishOnly": "npm run check && npm test"
   },
@@ -37,17 +38,9 @@
     "mcp",
     "model-context-protocol",
     "security",
-    "firewall",
     "dlp",
-    "claude-code",
-    "cursor",
     "secret-scanning",
-    "pii-redaction",
-    "acl",
-    "prompt-injection",
-    "jira",
-    "slack",
-    "4sails"
+    "pii-redaction"
   ],
   "author": "Mykola Mishchenko <hello@4sails.tech> (https://4sails.tech)",
   "homepage": "https://4sails.tech/open-source/mcp-guard",

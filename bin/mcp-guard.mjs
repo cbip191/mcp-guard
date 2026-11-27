@@ -40,7 +40,12 @@ const DEMO_PAYLOAD = {
   ],
 };
 
-const VALUE_FLAGS = new Set(["--scopes", "--allow-domain", "--injection-threshold"]);
+const VALUE_FLAGS = new Set([
+  "--scopes",
+  "--allow-domain",
+  "--injection-threshold",
+  "--block-min-rules",
+]);
 
 function printHelp() {
   console.log(`mcp-guard v${VERSION} — Zero-dependency bidirectional MCP firewall & scanner (by 4sails.tech)
@@ -53,10 +58,11 @@ Usage:
                  [--injection-threshold <low|medium|high|critical>] [--taint-untrusted]
       Scan a JSON or JSONL export (or '-' for stdin). Exits 0 if clean, 1 if findings exist, 2 on error.
 
-  mcp-guard proxy [--block-injections] [--taint-untrusted] [--injection-threshold <low|medium|high|critical>]
-                  [--no-pii] [--redact-outbound-pii] [--allow-domain agency.dev] -- <upstream-mcp-command> [args...]
-      Wrap any stdio MCP server: always scrubs outbound secrets (opt-in PII via --redact-outbound-pii) and
-      scrubs inbound secrets/PII + guards against indirect prompt injection.
+  mcp-guard proxy [--taint-untrusted | --no-taint] [--block-injections] [--block-min-rules <n>]
+                  [--injection-threshold <low|medium|high|critical>] [--no-pii] [--redact-outbound-pii]
+                  [--allow-domain agency.dev] -- <upstream-mcp-command> [args...]
+      Wrap any stdio MCP server: always scrubs outbound secrets (opt-in PII via --redact-outbound-pii),
+      scrubs inbound secrets/PII, and quarantines flagged fields by default (--no-taint to disable).
 
 Options:
   -v, --version    Print version and exit
@@ -298,12 +304,23 @@ if (cmd === "proxy") {
   const upstreamArgs = args.slice(sep + 2);
   const allowDomainRaw = getFlagValue(flags, "--allow-domain");
   const injectionThreshold = parseInjectionThreshold(flags);
+  const blockMinRulesRaw = getFlagValue(flags, "--block-min-rules");
+  let blockMinRules = 2;
+  if (blockMinRulesRaw !== null) {
+    const parsedMin = Number.parseInt(blockMinRulesRaw, 10);
+    if (!Number.isInteger(parsedMin) || parsedMin < 1) {
+      console.error(`Error: invalid --block-min-rules "${blockMinRulesRaw}". Expected a positive integer.`);
+      process.exit(2);
+    }
+    blockMinRules = parsedMin;
+  }
 
   runStdioProxy(upstreamCmd, upstreamArgs, {
     redactPii: !flags.includes("--no-pii"),
     redactOutboundPii: flags.includes("--redact-outbound-pii"),
     blockInjections: flags.includes("--block-injections"),
-    taintUntrusted: flags.includes("--taint-untrusted"),
+    blockMinRules,
+    taintUntrusted: !flags.includes("--no-taint"),
     injectionThreshold,
     allowEmailDomains: allowDomainRaw
       ? allowDomainRaw.split(",").map((s) => s.trim().toLowerCase()).filter(Boolean)

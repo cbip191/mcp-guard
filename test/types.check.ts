@@ -48,7 +48,8 @@ const inspected = inspectFrame("{}", "agent->mcp", {
   redactPii: true,
   redactOutboundPii: false,
   blockInjections: true,
-  taintUntrusted: false,
+  blockMinRules: 2,
+  taintUntrusted: true,
   injectionThreshold: "high",
 });
 
