@@ -11,6 +11,7 @@ export interface SecretRule {
   id: string;
   severity: Severity;
   pattern: RegExp;
+  pii?: boolean;
   valueGroup?: number;
   prefixGroup?: number;
   entropy?: boolean;
@@ -22,12 +23,30 @@ export interface RedactionFinding {
   severity: Severity;
   preview: string;
   hash: string;
+  token?: string;
   path?: string;
   inKey?: boolean;
 }
 
+export interface PiiPseudonymizerOptions {
+  maxEntries?: number;
+}
+
+export interface PiiPseudonymizerStats {
+  totalUnique: number;
+  byType: Record<string, number>;
+}
+
+export interface PiiPseudonymizer {
+  pseudonymize(ruleId: string, rawValue: string): string;
+  stats(): PiiPseudonymizerStats;
+  reset(): void;
+}
+
 export interface RedactTextOptions {
   redactPii?: boolean;
+  pseudonymizePii?: boolean;
+  pseudonymizer?: PiiPseudonymizer | null;
   allowEmailDomains?: string[];
   detectHighEntropy?: boolean;
 }
@@ -131,6 +150,7 @@ export interface PolicyToolsConfig {
 export interface PolicyRedactionConfig {
   redactPii?: boolean;
   redactOutboundPii?: boolean;
+  pseudonymizePii?: boolean;
   allowEmailDomains?: string[];
 }
 
@@ -167,6 +187,8 @@ export interface PolicyDecision {
 export interface InspectFrameOptions {
   redactPii?: boolean;
   redactOutboundPii?: boolean;
+  pseudonymizePii?: boolean;
+  pseudonymizer?: PiiPseudonymizer | null;
   allowEmailDomains?: string[];
   blockInjections?: boolean;
   blockMinRules?: number;
@@ -343,6 +365,8 @@ export interface StdioProxyOptions extends InspectFrameOptions {
 export interface GuardMcpOptions {
   callerScopes?: Iterable<string> | null;
   redactPii?: boolean;
+  pseudonymizePii?: boolean;
+  pseudonymizer?: PiiPseudonymizer | null;
   allowEmailDomains?: string[];
   injectionThreshold?: Severity;
   taintUntrusted?: boolean;
@@ -374,11 +398,15 @@ export interface GuardMcpResult<T = unknown> {
 
 export declare const SECRET_RULES: SecretRule[];
 export declare const PII_RULES: SecretRule[];
+export declare const PII_PSEUDONYM_PREFIX: Readonly<Record<string, string>>;
 export declare const INJECTION_PATTERNS: InjectionRule[];
 export declare const SEVERITY_RANK: Readonly<Record<Severity, number>>;
 
 export declare function shannonEntropy(str: string): number;
 export declare function hashSecret(value: string): string;
+export declare function isValidLuhn(value: string): boolean;
+export declare function isValidIban(value: string): boolean;
+export declare function createPiiPseudonymizer(options?: PiiPseudonymizerOptions): PiiPseudonymizer;
 export declare function redactText(text: string, options?: RedactTextOptions): RedactTextResult;
 export declare function redactPayload<T = unknown>(
   value: T,

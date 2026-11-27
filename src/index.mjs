@@ -3,9 +3,15 @@ import {
   redactText,
   shannonEntropy,
   hashSecret,
+  isValidLuhn,
+  isValidIban,
   SECRET_RULES,
   PII_RULES,
 } from "./redact.mjs";
+import {
+  createPiiPseudonymizer,
+  PII_PSEUDONYM_PREFIX,
+} from "./pseudonymize.mjs";
 import { filterFactsForPrincipal } from "./acl.mjs";
 import {
   detectPromptInjection,
@@ -52,6 +58,10 @@ export {
   redactPayload,
   shannonEntropy,
   hashSecret,
+  isValidLuhn,
+  isValidIban,
+  createPiiPseudonymizer,
+  PII_PSEUDONYM_PREFIX,
   SECRET_RULES,
   PII_RULES,
   filterFactsForPrincipal,
@@ -94,6 +104,8 @@ export function guardMcpResponse(payload, options = {}) {
   const {
     callerScopes = null,
     redactPii = true,
+    pseudonymizePii = false,
+    pseudonymizer = null,
     allowEmailDomains = [],
     injectionThreshold = "medium",
     taintUntrusted = false,
@@ -139,6 +151,8 @@ export function guardMcpResponse(payload, options = {}) {
 
   const { sanitized: redacted, findings } = redactPayload(working, {
     redactPii,
+    pseudonymizePii,
+    pseudonymizer,
     allowEmailDomains,
   });
 

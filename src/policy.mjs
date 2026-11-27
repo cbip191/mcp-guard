@@ -9,7 +9,12 @@ import { SEVERITY_RANK } from "./injection.mjs";
 
 const ALLOWED_TOP_KEYS = new Set(["tools", "redaction", "injection"]);
 const ALLOWED_TOOLS_KEYS = new Set(["allow", "deny", "argConstraints", "allowSecretFields"]);
-const ALLOWED_REDACTION_KEYS = new Set(["redactPii", "redactOutboundPii", "allowEmailDomains"]);
+const ALLOWED_REDACTION_KEYS = new Set([
+  "redactPii",
+  "redactOutboundPii",
+  "pseudonymizePii",
+  "allowEmailDomains",
+]);
 const ALLOWED_INJECTION_KEYS = new Set([
   "taintUntrusted",
   "blockInjections",
@@ -158,6 +163,12 @@ export function validatePolicy(raw) {
         throw new Error('Invalid policy: "redaction.redactOutboundPii" must be a boolean.');
       }
       normalized.redaction.redactOutboundPii = raw.redaction.redactOutboundPii;
+    }
+    if (raw.redaction.pseudonymizePii !== undefined) {
+      if (typeof raw.redaction.pseudonymizePii !== "boolean") {
+        throw new Error('Invalid policy: "redaction.pseudonymizePii" must be a boolean.');
+      }
+      normalized.redaction.pseudonymizePii = raw.redaction.pseudonymizePii;
     }
     if (raw.redaction.allowEmailDomains !== undefined) {
       assertStringArray(raw.redaction.allowEmailDomains, "redaction.allowEmailDomains");

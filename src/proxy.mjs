@@ -1,6 +1,7 @@
 import { spawn } from "node:child_process";
 import { performance } from "node:perf_hooks";
 import { redactPayload, redactText } from "./redact.mjs";
+import { createPiiPseudonymizer } from "./pseudonymize.mjs";
 import {
   detectPromptInjection,
   taintUntrustedPayload,
@@ -279,6 +280,8 @@ function inspectSingleJsonRpcMessage(parsed, direction, options) {
   const {
     redactPii = true,
     redactOutboundPii = false,
+    pseudonymizePii = false,
+    pseudonymizer = null,
     allowEmailDomains = [],
     blockInjections = false,
     blockMinRules = 2,
@@ -334,6 +337,8 @@ function inspectSingleJsonRpcMessage(parsed, direction, options) {
 
   const { sanitized, findings } = redactPayload(parsed, {
     redactPii: shouldRedactPii,
+    pseudonymizePii,
+    pseudonymizer,
     allowEmailDomains,
     skipPaths,
   });
@@ -463,6 +468,8 @@ export function inspectFrame(raw, direction, options = {}) {
   const {
     redactPii = true,
     redactOutboundPii = false,
+    pseudonymizePii = false,
+    pseudonymizer = null,
     allowEmailDomains = [],
     blockInjections = false,
     blockMinRules = 2,
@@ -495,6 +502,8 @@ export function inspectFrame(raw, direction, options = {}) {
     const shouldRedactPii = direction === "agent->mcp" ? redactOutboundPii : redactPii;
     const { text: redacted, findings } = redactText(raw, {
       redactPii: shouldRedactPii,
+      pseudonymizePii,
+      pseudonymizer,
       allowEmailDomains,
     });
     const injectionAlerts =
@@ -689,6 +698,10 @@ export function runStdioProxy(command, args = [], options = {}) {
   const redactPii = options.redactPii ?? policy?.redaction?.redactPii ?? true;
   const redactOutboundPii =
     options.redactOutboundPii ?? policy?.redaction?.redactOutboundPii ?? false;
+  const pseudonymizePii =
+    options.pseudonymizePii ?? policy?.redaction?.pseudonymizePii ?? false;
+  const pseudonymizer =
+    options.pseudonymizer ?? (pseudonymizePii ? createPiiPseudonymizer() : null);
   const allowEmailDomains =
     options.allowEmailDomains && options.allowEmailDomains.length > 0
       ? options.allowEmailDomains
@@ -715,6 +728,8 @@ export function runStdioProxy(command, args = [], options = {}) {
   const inspectOpts = {
     redactPii,
     redactOutboundPii,
+    pseudonymizePii,
+    pseudonymizer,
     blockInjections,
     blockMinRules,
     taintUntrusted,

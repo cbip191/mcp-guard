@@ -23,6 +23,10 @@ test("ReDoS guard: every secret, PII, and injection rule stays linear (<50ms) on
     `<system ${"a=b ".repeat(10000)}`,
     `sk-${"a".repeat(45000)}`,
     `${"user@sub.".repeat(5000)}com`,
+    `${"4111-1111-".repeat(5000)}`,
+    `${"4111 1111 ".repeat(5000)}`,
+    `${"123-45-".repeat(6000)}`,
+    `${"DE89 3704 ".repeat(5000)}`,
   ];
 
   for (const input of adversarialPayloads) {
