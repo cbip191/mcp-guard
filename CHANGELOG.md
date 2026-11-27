@@ -4,7 +4,7 @@ All notable changes to `@4sails/mcp-guard` will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.3.0] - 2026-11-27
 
 ### Added
 - **Declarative `mcp-guard.json` policy engine (`src/policy.mjs`, `src/proxy.mjs`, `bin/mcp-guard.mjs`):** Added `--policy <mcp-guard.json>` (or `MCP_GUARD_POLICY`) with strict fail-closed schema validation, linear-time `matchGlob`, `tools.allow` / `tools.deny` globs, fail-closed `tools.argConstraints` (supporting exact values, globs, and nested dot paths), per-tool secret field allowlists (`tools.allowSecretFields` via `redactPayload` `skipPaths`), JSON-RPC `-32002` pre-execution blocking, and portable shared ACL vectors (`test/fixtures/acl-vectors.json`).
