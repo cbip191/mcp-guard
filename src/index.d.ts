@@ -109,6 +109,7 @@ export interface InspectFrameOptions {
   redactOutboundPii?: boolean;
   allowEmailDomains?: string[];
   blockInjections?: boolean;
+  blockMinRules?: number;
   taintUntrusted?: boolean;
   injectionThreshold?: Severity;
 }

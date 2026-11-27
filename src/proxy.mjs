@@ -172,13 +172,21 @@ function buildBlockedError(id, message, alerts) {
   };
 }
 
+function shouldBlockAlerts(alerts, blockMinRules) {
+  if (alerts.length === 0) return false;
+  if (alerts.some((a) => a.severity === "critical")) return true;
+  const distinctRules = new Set(alerts.map((a) => a.ruleId)).size;
+  return distinctRules >= blockMinRules;
+}
+
 function inspectSingleJsonRpcMessage(parsed, direction, options) {
   const {
     redactPii = true,
     redactOutboundPii = false,
     allowEmailDomains = [],
     blockInjections = false,
-    taintUntrusted = false,
+    blockMinRules = 2,
+    taintUntrusted = true,
     injectionThreshold = "medium",
   } = options;
 
@@ -204,7 +212,12 @@ function inspectSingleJsonRpcMessage(parsed, direction, options) {
     threshold: injectionThreshold,
   });
 
-  if (blockInjections && injectionAlerts.length > 0 && sanitized && typeof sanitized === "object") {
+  if (
+    blockInjections &&
+    shouldBlockAlerts(injectionAlerts, blockMinRules) &&
+    sanitized &&
+    typeof sanitized === "object"
+  ) {
     const hasId = sanitized.id !== undefined && sanitized.id !== null;
     const hasMethod = typeof sanitized.method === "string";
 
@@ -297,7 +310,8 @@ export function inspectFrame(raw, direction, options = {}) {
     redactOutboundPii = false,
     allowEmailDomains = [],
     blockInjections = false,
-    taintUntrusted = false,
+    blockMinRules = 2,
+    taintUntrusted = true,
     injectionThreshold = "medium",
   } = options;
 
@@ -329,7 +343,11 @@ export function inspectFrame(raw, direction, options = {}) {
         ? detectPromptInjection(redacted, { threshold: injectionThreshold })
         : [];
 
-    if (direction === "mcp->agent" && blockInjections && injectionAlerts.length > 0) {
+    if (
+      direction === "mcp->agent" &&
+      blockInjections &&
+      shouldBlockAlerts(injectionAlerts, blockMinRules)
+    ) {
       return {
         action: "drop",
         output: null,
@@ -451,7 +469,8 @@ export function runStdioProxy(command, args = [], options = {}) {
     redactPii = true,
     redactOutboundPii = false,
     blockInjections = false,
-    taintUntrusted = false,
+    blockMinRules = 2,
+    taintUntrusted = true,
     injectionThreshold = "medium",
     allowEmailDomains = [],
     input = process.stdin,
@@ -465,6 +484,7 @@ export function runStdioProxy(command, args = [], options = {}) {
     redactPii,
     redactOutboundPii,
     blockInjections,
+    blockMinRules,
     taintUntrusted,
     injectionThreshold,
     allowEmailDomains,

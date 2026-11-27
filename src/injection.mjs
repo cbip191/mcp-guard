@@ -51,14 +51,21 @@ export const INJECTION_PATTERNS = [
     severity: "high",
     tier: "high-confidence",
     pattern:
-      /\b(?:ignore|disregard|forget|override|bypass)\s+(?:(?:all|any|the|your|these|those|of)\s+){0,3}(?:previous|prior|above|earlier|preceding|system|original)\s+(?:instructions?|prompts?|rules?|directives?|guidelines?)\b/i,
+      /(?:\b(?:ignore|disregard|forget|override|bypass|overlook)\s+(?:(?:all|any|the|your|these|those|of)\s+){0,3}(?:previous|prior|above|earlier|preceding|system|original)\s+(?:instructions?|prompts?|rules?|directives?|guidelines?|guidance|directions?)\b|\b(?:system|admin|priority|security)\s+override\s*[:!])/i,
+  },
+  {
+    id: "AI_READER_DIRECTIVE",
+    severity: "high",
+    tier: "high-confidence",
+    pattern:
+      /\b(?:note\s+to\s+(?:any\s+|all\s+)?(?:ai\s+assistants?|ai|llms?|language\s+models?|coding\s+agents?|assistants?|claude|chatgpt|copilot)\b|attention\s+(?:ai\s+assistant|ai|llm|assistant|agent)\b|if\s+you\s+are\s+an?\s+(?:ai|llm|language\s+model|assistant|coding\s+agent)\b|message\s+(?:to|for)\s+(?:the\s+)?(?:ai|llm|assistant|coding\s+agent)\s+(?:reading|processing|reviewing)\b|dear\s+(?:ai\s+assistant|claude|chatgpt|llm)\b)/i,
   },
   {
     id: "ROLE_HIJACK",
     severity: "high",
     tier: "high-confidence",
     pattern:
-      /(?:\b(?:you\s+are\s+now\s+(?:in\s+)?(?:dan|developer\s+mode|unrestricted|jailbroken|an?\s+unfiltered\b)|enter\s+(?:developer|jailbreak|dan|unrestricted)\s+mode|system\s+prompt\s+override|new\s+system\s+instructions?\s*:|from\s+now\s+on[,\s]+you\s+(?:must|will|shall)\s+(?:ignore|obey|disregard|reveal))\b|(?:^|\n)\s*(?:system|assistant)\s*:\s*(?:new\s+(?:task|instructions?|directive)|ignore|disregard|override|upload|exfiltrate)\b)/i,
+      /(?:\b(?:you\s+are\s+now\s+(?:in\s+)?(?:dan|developer\s+mode|unrestricted|jailbroken|an?\s+unfiltered\b)|enter\s+(?:developer|jailbreak|dan|unrestricted)\s+mode|system\s+prompt\s+override|new\s+system\s+instructions?\s*:|from\s+now\s+on[,\s]+you\s+(?:(?:must|will|shall)\s+(?:ignore|obey|disregard|reveal)|are\s+(?!(?:responsible|able|ready|free|welcome|eligible|required|expected|allowed|going|supposed|assigned|authorized|in\s+charge|on\s+call|here|there|part)\b)(?:an?\s+)?[A-Za-z][A-Za-z0-9_-]{2,}))\b|(?:^|\n)\s*(?:system|assistant)\s*:\s*(?:new\s+(?:task|instructions?|directive)|ignore|disregard|override|upload|exfiltrate)\b)/i,
   },
   {
     id: "SHELL_EXFILTRATION",
@@ -72,7 +79,7 @@ export const INJECTION_PATTERNS = [
     severity: "critical",
     tier: "high-confidence",
     pattern:
-      /(?:\b(?:exfiltrate|steal|dump|leak)\b[\s\S]{0,60}\b(?:api[_ -]?keys?|secrets?|tokens?|passwords?|credentials?|env(?:ironment)?\s+vars?|ssh\s+keys?)\b|\b(?:reveal|disclose|repeat|print|output|show\s+me)\b\s+(?:(?:all|the|your|my)\s+){0,2}(?:system\s+prompt|hidden\s+instructions?|api[_ -]?keys?|secret\s+keys?|aws\s+credentials?|env(?:ironment)?\s+variables?|private\s+keys?)\b)/i,
+      /(?:\b(?:exfiltrate|steal|dump|leak)\b[\s\S]{0,60}\b(?:api[_ -]?keys?|secrets?|tokens?|passwords?|credentials?|env(?:ironment)?\s+vars?|ssh\s+keys?)\b|\b(?:reveal|disclose|repeat|print|output|paste|show\s+me)\b\s+(?:(?:all|the|your|my|contents?\s+of(?:\s+the)?)\s+){0,3}(?:system\s+prompt|hidden\s+instructions?|api[_ -]?keys?|secret\s+keys?|deploy[_ -]?tokens?|access[_ -]?tokens?|auth[_ -]?tokens?|bearer[_ -]?tokens?|api[_ -]?tokens?|aws\s+credentials?|env(?:ironment)?\s+variables?|private\s+keys?|\.env(?:\s+file)?)\b)/i,
   },
   {
     id: "LLM_CONTROL_TOKEN",
@@ -92,7 +99,7 @@ export const INJECTION_PATTERNS = [
     severity: "medium",
     tier: "heuristic",
     pattern:
-      /<\s*\/?\s*(?:system|system_prompt|assistant|instructions?|tool_call|function_call)\b(?:\s+[^>\n]{0,120})?\s*>/i,
+      /(?:<\s*\/?\s*(?:system_prompt|tool_call|function_call)\b(?:\s+[^>\n]{0,120})?\s*>|<\s*(?:system|assistant|instructions?)\s+[^>\n]{1,120}>)/i,
   },
   {
     id: "HEURISTIC_ROLE_PLAY",
