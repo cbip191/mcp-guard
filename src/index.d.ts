@@ -1,4 +1,5 @@
 import type { ChildProcess } from "node:child_process";
+import type { Server } from "node:http";
 import type { Readable, Writable } from "node:stream";
 
 export type Severity = "low" | "medium" | "high" | "critical";
@@ -245,6 +246,37 @@ export interface AuditSummary {
   latencyMs: { p50: number; p95: number; p99: number; max: number };
 }
 
+export interface SseEvent {
+  event: string | null;
+  id: string | null;
+  retry: string | null;
+  data: string;
+}
+
+export interface SseParser {
+  push(chunk: Buffer | string): void;
+  end(): void;
+}
+
+export interface HttpProxyOptions extends InspectFrameOptions {
+  upstream: string;
+  host?: string;
+  port?: number;
+  maxFrameBytes?: number;
+  auditLog?: string | null;
+  onAuditEntry?: ((entry: AuditEntry) => void) | null;
+  stderr?: Writable;
+  fetchImpl?: typeof fetch;
+}
+
+export interface HttpProxyHandle {
+  server: Server;
+  host: string;
+  port: number;
+  url: string;
+  close(): Promise<void>;
+}
+
 export interface StdioProxyOptions extends InspectFrameOptions {
   auditLog?: string | null;
   onAuditEntry?: ((entry: AuditEntry) => void) | null;
@@ -357,6 +389,13 @@ export declare function formatAuditSummary(
   summary: AuditSummary,
   options?: { limit?: number }
 ): string;
+
+export declare function createSseParser(
+  onEvent: (event: SseEvent) => void,
+  options?: FrameParserOptions
+): SseParser;
+export declare function encodeSseEvent(event: Partial<SseEvent>): string;
+export declare function startHttpProxy(options: HttpProxyOptions): Promise<HttpProxyHandle>;
 
 export declare function guardMcpResponse<T = unknown>(
   payload: T,

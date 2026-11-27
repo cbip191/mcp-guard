@@ -134,9 +134,10 @@ claude mcp add guarded-github -- \
 
 - **Fail-closed citation-scope ACL gate (`filterFactsForPrincipal`, `guardMcpResponse`):** Intersects fact citations against the caller's permitted Jira/Slack/Git scopes — dropping uncited or unauthorized facts, stripping private citations, and failing closed (`sanitized: null`, `report.acl.blocked: true`, `report.safe: false`) on unrecognized payload shapes. Verified against portable shared vectors in [`test/fixtures/acl-vectors.json`](./test/fixtures/acl-vectors.json).
 
-### 4. Bidirectional Stdio Proxy & JSONL Audit Log (`src/proxy.mjs`, `src/audit.mjs`)
-- Supports both **NDJSON** and **`Content-Length`** framing (recalculating UTF-8 byte lengths after redaction) with a bounded `16 MiB` default `maxFrameBytes` DoS cap plus JSON-RPC batch arrays.
-- Never fails open on unparseable frames; drains child `stdout` completely before exit; handles `ENOENT`, `EPIPE`, `SIGINT`, and `SIGTERM` cleanly.
+### 4. Bidirectional Stdio + Streamable HTTP/SSE Proxy & Audit Log (`src/proxy.mjs`, `src/http-proxy.mjs`, `src/audit.mjs`)
+- **Stdio proxy (`mcp-guard proxy`):** Supports both **NDJSON** and **`Content-Length`** framing (recalculating UTF-8 byte lengths after redaction) with a bounded `16 MiB` default `maxFrameBytes` DoS cap plus JSON-RPC batch arrays.
+- **Streamable HTTP / SSE proxy (`mcp-guard http-proxy`):** Built with zero-dep `node:http` and `fetch`, binding to `127.0.0.1` by default — protects remote Streamable HTTP & legacy SSE MCP servers (GitHub, Linear, Atlassian, Stripe) using the exact same `mcp-guard.json` policy engine, outbound/inbound redaction, SSE event taint/blocking, and `--audit-log` core.
+- Never fails open on unparseable frames; drains streams cleanly on exit; handles `ENOENT`, `EPIPE`, `SIGINT`, and `SIGTERM`.
 - Pass `--audit-log <path.jsonl>` to record append-only structured events (`{ ts, dir, method, tool, action, rules, secretHashes, latencyMs }`) with one-way SHA-256 secret fingerprints (never raw secrets) and `tools/call` request→response tool correlation, then inspect them with `mcp-guard audit <path.jsonl>`.
 
 ---
@@ -150,6 +151,10 @@ node ./bin/mcp-guard.mjs demo
 # Wrap an upstream stdio MCP server with policy enforcement + structured JSONL audit logging
 node ./bin/mcp-guard.mjs proxy --policy ./mcp-guard.json --allow-domain youragency.com --audit-log ./mcp-audit.jsonl -- \
   npx -y @modelcontextprotocol/server-github
+
+# Start a local Streamable HTTP / SSE proxy in front of a remote MCP server
+node ./bin/mcp-guard.mjs http-proxy --upstream https://mcp.example.com/mcp --port 8787 \
+  --policy ./mcp-guard.json --allow-domain youragency.com --audit-log ./mcp-audit.jsonl
 
 # Summarize an audit log in the terminal (or --json for SIEM/CI)
 node ./bin/mcp-guard.mjs audit ./mcp-audit.jsonl

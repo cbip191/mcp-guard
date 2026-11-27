@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import {
   guardMcpResponse,
   runStdioProxy,
+  startHttpProxy,
   summarizeAuditLog,
   formatAuditSummary,
   loadPolicyFile,
@@ -54,6 +55,9 @@ const VALUE_FLAGS = new Set([
   "--block-min-rules",
   "--audit-log",
   "--policy",
+  "--upstream",
+  "--port",
+  "--host",
 ]);
 
 function printHelp() {
@@ -74,6 +78,12 @@ Usage:
                   -- <upstream-mcp-command> [args...]
       Wrap any stdio MCP server: enforces mcp-guard.json tool/arg policies before execution, scrubs outbound
       secrets (opt-in PII via --redact-outbound-pii), scrubs inbound secrets/PII, and taints flagged fields.
+
+  mcp-guard http-proxy --upstream <https://...> [--port 8787] [--host 127.0.0.1]
+                       [--policy <mcp-guard.json>] [--audit-log <path.jsonl>] [--allow-domain agency.dev]
+                       [--taint-untrusted | --no-taint] [--block-injections] [--block-min-rules <n>]
+                       [--injection-threshold <low|medium|high|critical>] [--no-pii] [--redact-outbound-pii]
+      Start a local Streamable HTTP / SSE MCP proxy in front of any remote MCP server.
 
   mcp-guard audit <logfile.jsonl|-> [--json]
       Summarize a JSONL audit log (top triggered rules, MCP tools, blocked/redacted counts, latency).
@@ -337,15 +347,7 @@ if (cmd === "audit") {
   process.exit(0);
 }
 
-if (cmd === "proxy") {
-  const sep = args.indexOf("--");
-  if (sep === -1 || sep + 1 >= args.length) {
-    console.error("Error: specify an upstream command after '--' (e.g. mcp-guard proxy -- npx some-mcp-server)");
-    process.exit(2);
-  }
-  const flags = args.slice(1, sep);
-  const upstreamCmd = args[sep + 1];
-  const upstreamArgs = args.slice(sep + 2);
+function parseProxyFlags(flags) {
   const allowDomainRaw = getFlagValue(flags, "--allow-domain");
   const auditLog = getFlagValue(flags, "--audit-log");
   const policyPath = getFlagValue(flags, "--policy") || process.env.MCP_GUARD_POLICY || null;
@@ -372,7 +374,7 @@ if (cmd === "proxy") {
     }
   }
 
-  const proxyOpts = {
+  return {
     policy,
     auditLog,
     allowEmailDomains: allowDomainRaw
@@ -389,8 +391,54 @@ if (cmd === "proxy") {
         : undefined,
     injectionThreshold,
   };
+}
 
-  runStdioProxy(upstreamCmd, upstreamArgs, proxyOpts);
+if (cmd === "http-proxy") {
+  const flags = args.slice(1);
+  const upstream = getFlagValue(flags, "--upstream");
+  if (!upstream) {
+    console.error("Error: specify --upstream <https://...> (e.g. mcp-guard http-proxy --upstream https://mcp.example.com --port 8787)");
+    process.exit(2);
+  }
+  const host = getFlagValue(flags, "--host") || "127.0.0.1";
+  const portRaw = getFlagValue(flags, "--port");
+  let port = 8787;
+  if (portRaw !== null) {
+    port = Number.parseInt(portRaw, 10);
+    if (!Number.isInteger(port) || port < 0 || port > 65535) {
+      console.error(`Error: invalid --port "${portRaw}". Expected an integer 0-65535.`);
+      process.exit(2);
+    }
+  }
+
+  const proxyOpts = parseProxyFlags(flags);
+  try {
+    const handle = await startHttpProxy({
+      ...proxyOpts,
+      upstream,
+      host,
+      port,
+    });
+    const shutdown = () => {
+      handle.close().finally(() => process.exit(0));
+    };
+    process.on("SIGINT", shutdown);
+    process.on("SIGTERM", shutdown);
+  } catch (err) {
+    console.error(`Error: failed to start http-proxy: ${err?.message || err}`);
+    process.exit(2);
+  }
+} else if (cmd === "proxy") {
+  const sep = args.indexOf("--");
+  if (sep === -1 || sep + 1 >= args.length) {
+    console.error("Error: specify an upstream command after '--' (e.g. mcp-guard proxy -- npx some-mcp-server)");
+    process.exit(2);
+  }
+  const flags = args.slice(1, sep);
+  const upstreamCmd = args[sep + 1];
+  const upstreamArgs = args.slice(sep + 2);
+
+  runStdioProxy(upstreamCmd, upstreamArgs, parseProxyFlags(flags));
 } else {
   console.error(`Unknown command: ${cmd}`);
   printHelp();
