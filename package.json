@@ -18,6 +18,7 @@
   "files": [
     "bin/",
     "src/",
+    "mcp-guard.schema.json",
     "README.md",
     "LICENSE"
   ],

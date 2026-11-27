@@ -213,7 +213,10 @@ export interface GuardPolicy {
   injection: PolicyInjectionConfig;
 }
 
+export type PolicyPreset = "default" | "github" | "jira" | "slack" | "strict";
+
 export interface RawGuardPolicy {
+  $schema?: string;
   tools?: PolicyToolsConfig;
   redaction?: RawPolicyRedactionConfig;
   injection?: PolicyInjectionConfig;
@@ -512,6 +515,11 @@ export declare function runStdioProxy(
   options?: StdioProxyOptions
 ): ChildProcess | null;
 
+export declare const POLICY_PRESETS: readonly PolicyPreset[];
+export declare function generateStarterPolicy(
+  preset?: PolicyPreset,
+  options?: { schema?: string }
+): RawGuardPolicy;
 export declare function matchGlob(pattern: string, value: string): boolean;
 export declare function validatePolicy(raw: RawGuardPolicy): GuardPolicy;
 export declare function loadPolicyFile(filePath: string): GuardPolicy;

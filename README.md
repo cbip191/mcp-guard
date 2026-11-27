@@ -171,6 +171,10 @@ npx -y @4sails/mcp-guard wrap ~/.cursor/mcp.json --dry-run --allow-domain yourag
 npx -y @4sails/mcp-guard wrap ~/.cursor/mcp.json --apply --allow-domain youragency.com
 npx -y @4sails/mcp-guard unwrap ~/.cursor/mcp.json --apply
 
+# Scaffold a starter mcp-guard.json policy (with JSON Schema autocomplete) and dry-run test rules offline
+npx -y @4sails/mcp-guard init --preset github
+npx -y @4sails/mcp-guard policy test ./mcp-guard.json github_get_issue '{"repo":"your-org/app"}'
+
 # Summarize an audit log in the terminal (or --json for SIEM/CI)
 npx -y @4sails/mcp-guard audit ./mcp-audit.jsonl
 

@@ -14,7 +14,78 @@ const BUILT_IN_RULE_IDS = new Set([
 ]);
 const CUSTOM_RULE_ID_RE = /^[A-Z][A-Z0-9_]{1,63}$/;
 
-const ALLOWED_TOP_KEYS = new Set(["tools", "redaction", "injection"]);
+const ALLOWED_TOP_KEYS = new Set(["$schema", "tools", "redaction", "injection"]);
+const SCHEMA_URL =
+  "https://raw.githubusercontent.com/cbip191/mcp-guard/main/mcp-guard.schema.json";
+
+export const POLICY_PRESETS = Object.freeze(["default", "github", "jira", "slack", "strict"]);
+
+/**
+ * Generates a valid starter `mcp-guard.json` policy object for the chosen preset.
+ */
+export function generateStarterPolicy(preset = "default", options = {}) {
+  const name = String(preset || "default").trim().toLowerCase();
+  if (!POLICY_PRESETS.includes(name)) {
+    throw new Error(
+      `Unknown policy preset "${preset}". Expected one of: ${POLICY_PRESETS.join(", ")}.`
+    );
+  }
+  const schema = options.schema ?? SCHEMA_URL;
+  const base = {
+    $schema: schema,
+    tools: {
+      deny: ["*_delete*", "*_destroy*", "*_drop*"],
+    },
+    redaction: {
+      redactPii: true,
+      redactOutboundPii: false,
+      pseudonymizePii: false,
+      allowEmailDomains: [],
+    },
+    injection: {
+      taintUntrusted: true,
+      blockInjections: false,
+      blockMinRules: 2,
+      threshold: "medium",
+    },
+  };
+
+  if (name === "github") {
+    base.tools = {
+      allow: ["github_get_*", "github_list_*", "github_search_*", "github_create_issue", "github_add_comment"],
+      deny: ["*_delete*", "*_merge_*", "github_push_*"],
+      argConstraints: {
+        "github_*": { repo: ["your-org/*"] },
+      },
+    };
+  } else if (name === "jira") {
+    base.tools = {
+      allow: ["jira_get_*", "jira_search*", "jira_list_*", "jira_add_comment"],
+      deny: ["*_delete*", "*_transition*"],
+      argConstraints: {
+        "jira_*": { project_key: ["PROJ"] },
+      },
+    };
+  } else if (name === "slack") {
+    base.tools = {
+      allow: ["slack_list_*", "slack_get_*", "slack_search_*", "slack_post_message"],
+      deny: ["*_delete*", "slack_admin_*"],
+      argConstraints: {
+        "slack_*": { channel_id: ["C01EXAMPLE"] },
+      },
+    };
+  } else if (name === "strict") {
+    base.tools = {
+      allow: ["*_get_*", "*_list_*", "*_search*", "read_*"],
+      deny: ["*_delete*", "*_destroy*", "*_write*", "*_update*", "*_create*", "*_merge*"],
+    };
+    base.redaction.pseudonymizePii = true;
+    base.injection.blockInjections = true;
+    base.injection.threshold = "high";
+  }
+
+  return base;
+}
 const ALLOWED_TOOLS_KEYS = new Set(["allow", "deny", "argConstraints", "allowSecretFields"]);
 const ALLOWED_REDACTION_KEYS = new Set([
   "redactPii",
@@ -94,6 +165,10 @@ function assertStringArray(val, label) {
 export function validatePolicy(raw) {
   assertPlainObject(raw, "root");
   assertAllowedKeys(raw, ALLOWED_TOP_KEYS, "root");
+
+  if (raw.$schema !== undefined && (typeof raw.$schema !== "string" || raw.$schema.length === 0)) {
+    throw new Error('Invalid policy: "$schema" must be a non-empty string.');
+  }
 
   const normalized = {
     tools: {
