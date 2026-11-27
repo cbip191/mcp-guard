@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-11-27
+
 ### Added
 - **Session-scoped deterministic PII pseudonymization & broader PII (`src/pseudonymize.mjs`, `src/redact.mjs`):** Added `createPiiPseudonymizer()`, `PII_PSEUDONYM_PREFIX`, `--pseudonymize-pii` (CLI `proxy`, `http-proxy`, `scan`, `wrap`), and `redaction.pseudonymizePii` policy support mapping PII consistently per session (`[EMAIL_1]`, `[EMAIL_2]`, `[PHONE_1]`, `[CARD_1]`, `[SSN_1]`, `[IBAN_1]`) while keeping all secrets strictly one-way redacted (`[REDACTED:...]`). Added Luhn-validated `CREDIT_CARD` (`isValidLuhn`), SSA-validated `US_SSN`, and ISO 13616 MOD-97 `IBAN` (`isValidIban`) detectors verified with `0/350` false positives on the Apache Kafka corpus and `<50 ms` on 50 KB ReDoS inputs.
 - **`mcp-guard wrap` / `unwrap` auto-installer (`src/wrap.mjs`, `bin/mcp-guard.mjs`):** Added idempotent `wrapMcpConfig`, `unwrapMcpConfig`, `isWrappedServer`, `formatJsonDiff`, and `applyMcpConfigTransform` supporting Cursor, Claude Desktop, Claude Code (`.mcp.json`), and VS Code (`servers`), defaulting to `--dry-run` diff preview, creating `.bak` backups on `--apply`, and supporting `--local` and `--server` filtering.

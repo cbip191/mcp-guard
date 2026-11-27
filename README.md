@@ -39,7 +39,7 @@ cd mcp-guard
 # Run the built-in multi-client agency demo
 npm run demo
 
-# Run static checks, full test suite (35 tests), and corpus benchmark
+# Run static checks, full test suite (52 tests), and corpus benchmark
 npm run check && npm test && npm run benchmark
 ```
 
