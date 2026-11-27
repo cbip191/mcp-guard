@@ -1,0 +1,157 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/cbip191/mcp-guard/main/mcp-guard.schema.json",
+  "title": "mcp-guard Policy Configuration",
+  "description": "Declarative tool/argument ACL, secret/PII redaction, and prompt-injection policy for @4sails/mcp-guard.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "$schema": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Optional JSON Schema URI for editor autocomplete and validation."
+    },
+    "tools": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "allow": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 },
+          "description": "Tool name globs permitted to execute. When non-empty, unlisted tools are denied by default."
+        },
+        "deny": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 },
+          "description": "Tool name globs always blocked before upstream execution. Explicit deny always wins over allow."
+        },
+        "argConstraints": {
+          "type": "object",
+          "description": "Map of tool glob -> argument dot-path -> allowed primitive or glob values (fail-closed on missing args).",
+          "additionalProperties": {
+            "type": "object",
+            "additionalProperties": {
+              "oneOf": [
+                { "type": "string" },
+                { "type": "number" },
+                { "type": "boolean" },
+                {
+                  "type": "array",
+                  "minItems": 1,
+                  "items": {
+                    "oneOf": [
+                      { "type": "string" },
+                      { "type": "number" },
+                      { "type": "boolean" }
+                    ]
+                  }
+                }
+              ]
+            }
+          }
+        },
+        "allowSecretFields": {
+          "type": "object",
+          "description": "Per-tool argument dot-paths exempt from outbound secret redaction (e.g. vault secret writers).",
+          "additionalProperties": {
+            "type": "array",
+            "items": { "type": "string", "minLength": 1 }
+          }
+        }
+      }
+    },
+    "redaction": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "redactPii": {
+          "type": "boolean",
+          "default": true,
+          "description": "Redact or pseudonymize PII (email, phone, credit card, SSN, IBAN) on inbound MCP responses."
+        },
+        "redactOutboundPii": {
+          "type": "boolean",
+          "default": false,
+          "description": "Also redact PII on outbound agent -> MCP tool arguments (secrets are always redacted)."
+        },
+        "pseudonymizePii": {
+          "type": "boolean",
+          "default": false,
+          "description": "Replace PII with session-consistent tokens ([EMAIL_1], [PHONE_1], etc.) while keeping secrets one-way redacted."
+        },
+        "allowEmailDomains": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 },
+          "description": "Internal email domains exempt from EMAIL_ADDRESS redaction."
+        },
+        "disabledRules": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 },
+          "description": "Built-in redaction rule IDs to suppress (e.g. PHONE_NUMBER)."
+        },
+        "customRules": {
+          "type": "array",
+          "description": "Organization-specific secret regexes validated for syntax and ReDoS safety at policy load time.",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["id", "pattern"],
+            "properties": {
+              "id": {
+                "type": "string",
+                "pattern": "^[A-Z][A-Z0-9_]{1,63}$"
+              },
+              "pattern": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 2048
+              },
+              "flags": {
+                "type": "string",
+                "pattern": "^[gimsu]*$"
+              },
+              "severity": {
+                "type": "string",
+                "enum": ["low", "medium", "high", "critical"],
+                "default": "high"
+              }
+            }
+          }
+        },
+        "allowPatterns": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 },
+          "description": "Regex patterns for known benign values that should never be redacted."
+        }
+      }
+    },
+    "injection": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "taintUntrusted": {
+          "type": "boolean",
+          "default": true,
+          "description": "Wrap flagged string fields in [MCP_GUARD_UNTRUSTED_DATA ...] markers."
+        },
+        "blockInjections": {
+          "type": "boolean",
+          "default": false,
+          "description": "Replace/drop frames that hit a critical rule or >= blockMinRules distinct rules."
+        },
+        "blockMinRules": {
+          "type": "integer",
+          "minimum": 1,
+          "default": 2,
+          "description": "Minimum distinct injection rules required to block when blockInjections is enabled."
+        },
+        "threshold": {
+          "type": "string",
+          "enum": ["low", "medium", "high", "critical"],
+          "default": "medium",
+          "description": "Minimum alert severity reported by the prompt-injection tripwire."
+        }
+      }
+    }
+  }
+}

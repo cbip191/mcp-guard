@@ -41,6 +41,8 @@ import {
   loadPolicyFile,
   evaluateToolCallPolicy,
   getOutboundSecretSkipPaths,
+  POLICY_PRESETS,
+  generateStarterPolicy,
 } from "./policy.mjs";
 import {
   createSseParser,
@@ -88,6 +90,8 @@ export {
   loadPolicyFile,
   evaluateToolCallPolicy,
   getOutboundSecretSkipPaths,
+  POLICY_PRESETS,
+  generateStarterPolicy,
   createSseParser,
   encodeSseEvent,
   startHttpProxy,

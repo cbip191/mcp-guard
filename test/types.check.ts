@@ -31,6 +31,8 @@ import {
   loadPolicyFile,
   evaluateToolCallPolicy,
   getOutboundSecretSkipPaths,
+  POLICY_PRESETS,
+  generateStarterPolicy,
   createSseParser,
   encodeSseEvent,
   startHttpProxy,
@@ -113,6 +115,7 @@ const auditEntry = buildAuditEntry({
 const auditSummary: AuditSummary = summarizeAuditLog(`${JSON.stringify(auditEntry)}\n`);
 const formattedAudit: string = formatAuditSummary(auditSummary, { limit: 5 });
 
+const starter = generateStarterPolicy("github");
 const policy: GuardPolicy = validatePolicy({
   tools: {
     allow: ["jira_*"],
@@ -157,6 +160,8 @@ void [
   formattedAudit,
   createAuditLogger,
   policy,
+  starter,
+  POLICY_PRESETS,
   globOk,
   decision,
   skipPaths,

@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import {
   guardMcpResponse,
@@ -9,6 +9,10 @@ import {
   summarizeAuditLog,
   formatAuditSummary,
   loadPolicyFile,
+  evaluateToolCallPolicy,
+  getOutboundSecretSkipPaths,
+  POLICY_PRESETS,
+  generateStarterPolicy,
   applyMcpConfigTransform,
   SEVERITY_RANK,
 } from "../src/index.mjs";
@@ -62,6 +66,7 @@ const VALUE_FLAGS = new Set([
   "--port",
   "--host",
   "--server",
+  "--preset",
 ]);
 
 function printHelp() {
@@ -100,6 +105,12 @@ Usage:
 
   mcp-guard unwrap <mcp.json> [--dry-run | --apply] [--server name1,name2]
       Cleanly revert wrapped mcp-guard servers back to their original command/args (creates .bak with --apply).
+
+  mcp-guard init [mcp-guard.json] [--preset default|github|jira|slack|strict] [--force]
+      Scaffold a starter mcp-guard.json policy referencing mcp-guard.schema.json (refuses overwrite without --force).
+
+  mcp-guard policy test <mcp-guard.json> <toolName> ['{"arg":"val"}'] [--json]
+      Dry-run a tool call against mcp-guard.json offline. Exits 0 if allowed, 1 if denied, 2 on error.
 
   mcp-guard audit <logfile.jsonl|-> [--json]
       Summarize a JSONL audit log (top triggered rules, MCP tools, blocked/redacted counts, latency).
@@ -411,6 +422,93 @@ if (cmd === "wrap" || cmd === "unwrap") {
     console.error(`Error: ${err?.message || err}`);
     process.exit(2);
   }
+}
+
+if (cmd === "init") {
+  const initArgs = args.slice(1);
+  const positionals = extractPositionalArgs(initArgs);
+  const targetPath = positionals[0] || "mcp-guard.json";
+  const preset = getFlagValue(initArgs, "--preset") || "default";
+  const force = initArgs.includes("--force");
+
+  if (existsSync(targetPath) && !force) {
+    console.error(`Error: ${targetPath} already exists. Re-run with --force to overwrite.`);
+    process.exit(2);
+  }
+
+  try {
+    const starter = generateStarterPolicy(preset);
+    writeFileSync(targetPath, `${JSON.stringify(starter, null, 2)}\n`, "utf8");
+    console.log(`Created ${targetPath} (preset: ${preset}; presets: ${POLICY_PRESETS.join(", ")})`);
+    process.exit(0);
+  } catch (err) {
+    console.error(`Error: ${err?.message || err}`);
+    process.exit(2);
+  }
+}
+
+if (cmd === "policy") {
+  const sub = args[1];
+  if (sub !== "test") {
+    console.error(
+      'Error: expected "mcp-guard policy test <mcp-guard.json> <toolName> [jsonArgs] [--json]"'
+    );
+    process.exit(2);
+  }
+  const policyArgs = args.slice(2);
+  const positionals = extractPositionalArgs(policyArgs);
+  const policyPath = positionals[0];
+  const toolName = positionals[1];
+  const rawToolArgs = positionals[2];
+  const asJson = policyArgs.includes("--json");
+
+  if (!policyPath || !toolName) {
+    console.error(
+      'Error: usage: mcp-guard policy test <mcp-guard.json> <toolName> [\'{"key":"val"}\'] [--json]'
+    );
+    process.exit(2);
+  }
+
+  let policy;
+  try {
+    policy = loadPolicyFile(policyPath);
+  } catch (err) {
+    console.error(`Error: failed to load policy "${policyPath}": ${err?.message || err}`);
+    process.exit(2);
+  }
+
+  let toolArgs = {};
+  if (rawToolArgs !== undefined) {
+    try {
+      const parsed = JSON.parse(rawToolArgs);
+      if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+        throw new Error("tool arguments must be a JSON object");
+      }
+      toolArgs = parsed;
+    } catch (err) {
+      console.error(`Error: invalid JSON tool arguments: ${err?.message || err}`);
+      process.exit(2);
+    }
+  }
+
+  const decision = evaluateToolCallPolicy(toolName, toolArgs, policy);
+  const allowSecretFields = [...getOutboundSecretSkipPaths(toolName, policy)];
+  const output = {
+    tool: toolName,
+    allowed: decision.allowed,
+    ruleId: decision.ruleId,
+    reason: decision.reason,
+    allowSecretFields,
+  };
+
+  if (asJson) {
+    console.log(JSON.stringify(output, null, 2));
+  } else if (decision.allowed) {
+    console.log(`ALLOW  tool=${toolName}${allowSecretFields.length > 0 ? ` allowSecretFields=${allowSecretFields.join(",")}` : ""}`);
+  } else {
+    console.log(`DENY   tool=${toolName} rule=${decision.ruleId} reason=${decision.reason}`);
+  }
+  process.exit(decision.allowed ? 0 : 1);
 }
 
 if (cmd === "audit") {
