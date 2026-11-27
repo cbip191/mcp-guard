@@ -6,6 +6,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.4.1] - 2026-11-27
+
+### Documentation
+- Switched `README.md` Quickstart, `mcp.json`, CLI, and Programmatic API examples to the published `@4sails/mcp-guard` npm package (`npx -y @4sails/mcp-guard`).
+- Added an explicit **Threat Model & Non-Goals** section to `README.md` and added the `v1.0.0` production-readiness roadmap (`#24`–`#29`) to `ROADMAP.md`.
+
 ## [0.4.0] - 2026-11-27
 
 ### Added
