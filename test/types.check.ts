@@ -25,10 +25,14 @@ import {
   loadPolicyFile,
   evaluateToolCallPolicy,
   getOutboundSecretSkipPaths,
+  createSseParser,
+  encodeSseEvent,
+  startHttpProxy,
   guardMcpResponse,
   type AuditSummary,
   type GuardMcpResult,
   type GuardPolicy,
+  type HttpProxyHandle,
   type Severity,
 } from "@4sails/mcp-guard";
 
@@ -100,6 +104,14 @@ const globOk: boolean = matchGlob("jira_*", "jira_get_issue");
 const decision = evaluateToolCallPolicy("jira_get_issue", { project_key: "HBR" }, policy);
 const skipPaths: Set<string> = getOutboundSecretSkipPaths("vault_write_secret", policy);
 
+const sseParser = createSseParser((evt) => {
+  const wire: string = encodeSseEvent(evt);
+  void wire;
+});
+sseParser.push("data: {}\n\n");
+sseParser.end();
+const startFn: (opts: { upstream: string }) => Promise<HttpProxyHandle> = startHttpProxy;
+
 void [
   entropy,
   hash,
@@ -113,6 +125,7 @@ void [
   skipPaths,
   loadPolicyFile,
   DEFAULT_MAX_FRAME_BYTES,
+  startFn,
   textRes,
   payloadRes,
   aclRes,

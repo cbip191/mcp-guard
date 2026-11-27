@@ -34,6 +34,11 @@ import {
   evaluateToolCallPolicy,
   getOutboundSecretSkipPaths,
 } from "./policy.mjs";
+import {
+  createSseParser,
+  encodeSseEvent,
+  startHttpProxy,
+} from "./http-proxy.mjs";
 
 export {
   redactText,
@@ -62,6 +67,9 @@ export {
   loadPolicyFile,
   evaluateToolCallPolicy,
   getOutboundSecretSkipPaths,
+  createSseParser,
+  encodeSseEvent,
+  startHttpProxy,
 };
 
 /**

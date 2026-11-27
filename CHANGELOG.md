@@ -4,6 +4,11 @@ All notable changes to `@4sails/mcp-guard` will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+- **Streamable HTTP / SSE MCP transport proxy (`src/http-proxy.mjs`, `bin/mcp-guard.mjs`):** Added `mcp-guard http-proxy --upstream https://... --port 8787` (`startHttpProxy`, `createSseParser`, `encodeSseEvent`) built with zero-dep `node:http` and `fetch`, binding to `127.0.0.1` by default, supporting JSON `POST`, Streamable HTTP & legacy `GET` SSE streaming, `DELETE` session termination, `/_mcp-guard/health`, `413` body-size enforcement, and reusing the full `mcp-guard.json` policy, redaction, taint/blocking, and JSONL `--audit-log` core.
+
 ## [0.3.0] - 2026-11-27
 
 ### Added

@@ -30,8 +30,8 @@ Internal engineering reviews of `v0.1.0` and early `v0.2.0` established our core
 - [x] **#6 (`P1`) — Structured JSONL `--audit-log` + `mcp-guard audit` summary CLI:** Append-only `{ ts, dir, method, tool, action, rules, secretHashes, latencyMs }` (SHA-256 hashes only, never raw secrets) with `tools/call` request→response correlation plus a terminal/JSON summary command.
 - [x] **#5 (`P1`) — Declarative `mcp-guard.json` policy engine, tool/arg ACLs & shared ACL vectors:** Pre-execution `tools.allow` / `tools.deny` globs, fail-closed `tools.argConstraints` (`jira_*: { project_key }`, `slack_*: { channel_id }`, `github_*: { repo }`), per-tool secret exceptions (`tools.allowSecretFields`), bounded `16 MiB` frame buffer cap, CI-safe `scan` preview omission, and portable `test/fixtures/acl-vectors.json`.
 
-### Next Up (`v0.4.0`) — Remote MCP Transport
-- [ ] **#8 (`P1`) — Streamable HTTP / SSE MCP transport proxy:** `mcp-guard http-proxy --upstream https://... --port 8787` using zero-dep `node:http` & `fetch` — prioritized next as official GitHub, Linear, Atlassian, and Stripe MCP servers move to remote Streamable HTTP.
+### Milestone `v0.4.0` — Remote MCP Transport
+- [x] **#8 (`P1`) — Streamable HTTP / SSE MCP transport proxy:** `mcp-guard http-proxy --upstream https://... --port 8787` built with zero-dep `node:http` & `fetch`, reusing the full policy, redaction, SSE taint/blocking, and JSONL audit core.
 
 ### Later / Demand-Driven (`v1.0.0`, P2)
 - [ ] **#7 (`P2`) — `mcp-guard wrap` / `unwrap` auto-installer:** Automatically wrap/revert stdio servers in `.cursor/mcp.json` or Claude Desktop config with `--dry-run` and `.bak` backup.
