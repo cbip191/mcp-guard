@@ -694,6 +694,49 @@ function mapAuditAction(res) {
 }
 
 const MAX_PENDING_CALLS = 1000;
+const WINDOWS_CMD_SHIMS = new Set(["npx", "npm", "pnpm", "yarn", "corepack"]);
+
+function quoteWinCmdArg(arg) {
+  const str = String(arg);
+  if (str.length === 0) return '""';
+  const escaped = str.replace(/(\\*)"/g, '$1$1\\"').replace(/(\\*)$/, "$1$1");
+  return /[\s"&|<>()^%!]/.test(str) ? `"${escaped}"` : escaped;
+}
+
+/**
+ * Resolves a safe cross-platform `child_process.spawn` spec.
+ * On Windows, Node 20.12+/22+ refuses to spawn `.cmd`/`.bat` shims (like `npx`) directly
+ * without `cmd.exe`. This helper routes only known Windows batch shims through
+ * `ComSpec /d /s /c` with safely quoted arguments while leaving Unix and native binaries
+ * untouched (`shell: false`).
+ */
+export function resolveSpawnSpec(command, args = [], platform = process.platform) {
+  const safeArgs = Array.isArray(args) ? args.map(String) : [];
+  if (platform !== "win32" || typeof command !== "string" || command.length === 0) {
+    return { command, args: safeArgs, options: {} };
+  }
+
+  const base = command.replace(/^.*[\\/]/, "").toLowerCase();
+  const isBatchShim =
+    WINDOWS_CMD_SHIMS.has(base) || base.endsWith(".cmd") || base.endsWith(".bat");
+
+  if (!isBatchShim) {
+    return { command, args: safeArgs, options: {} };
+  }
+
+  const comSpec = process.env.ComSpec || "cmd.exe";
+  const resolvedCmd = WINDOWS_CMD_SHIMS.has(base) ? `${command}.cmd` : command;
+  const cmdLine = [quoteWinCmdArg(resolvedCmd), ...safeArgs.map(quoteWinCmdArg)].join(" ");
+
+  return {
+    command: comSpec,
+    args: ["/d", "/s", "/c", `"${cmdLine}"`],
+    options: {
+      windowsVerbatimArguments: true,
+      windowsHide: true,
+    },
+  };
+}
 
 /**
  * Wraps any stdio MCP server process as a bidirectional JSON-RPC firewall:
@@ -773,9 +816,11 @@ export function runStdioProxy(command, args = [], options = {}) {
 
   let child;
   try {
-    child = spawn(command, args, {
+    const spec = resolveSpawnSpec(command, args);
+    child = spawn(spec.command, spec.args, {
       stdio: ["pipe", "pipe", "inherit"],
       env: process.env,
+      ...spec.options,
     });
   } catch (err) {
     const code = err?.code === "ENOENT" ? 127 : err?.code === "EACCES" || err?.code === "EPERM" ? 126 : 1;

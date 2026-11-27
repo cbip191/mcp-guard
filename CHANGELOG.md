@@ -7,8 +7,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ## [Unreleased]
 
 ### Added
+- **Real-world MCP compatibility & Windows `npx` support (`src/proxy.mjs`, `src/http-proxy.mjs`, `test/compat.test.mjs`, `scripts/smoke-real-mcp.mjs`):** Added `resolveSpawnSpec()` for safe Windows `.cmd`/`.bat` shim spawning (`npx`, `npm`, `pnpm`, `yarn`, `corepack`), added MCP `2025-03-26` lifecycle, Streamable HTTP OAuth `401`/`WWW-Authenticate`/`Mcp-Session-Id`/`Last-Event-ID`, and live Windows `.cmd` CI compatibility tests, plus `scripts/smoke-real-mcp.mjs` for live verification against `@modelcontextprotocol/server-filesystem`.
 - **Custom redaction rules, rule suppression & allowlist patterns (`src/redact.mjs`, `src/policy.mjs`):** Added `compileSafeRegex()` (syntax, flag, nested-quantifier, and adversarial ReDoS probe guard), `redaction.disabledRules` (validated against built-in rule IDs), `redaction.customRules` (always one-way `[REDACTED:<ID>]`), and `redaction.allowPatterns` across `redactText`, `redactPayload`, `guardMcpResponse`, `mcp-guard.json`, stdio proxy, and HTTP/SSE proxy.
 - **Automated npm OIDC provenance release workflow (`.github/workflows/release.yml`):** Tag-triggered (`v*.*.*`) GitHub Actions workflow verifying `tag === v<package.json.version>`, running `npm run check && npm test && npm run demo`, and publishing with `npm publish --provenance --access public` via npm OIDC Trusted Publishing (zero long-lived npm secrets), documented in `CONTRIBUTING.md` and `SECURITY.md`.
+
+### Fixed
+- **Streamable HTTP OAuth 2.1 compatibility (`src/http-proxy.mjs`):** Preserved exact HTTP status codes on empty-body non-2xx responses (such as `401 Unauthorized` + `WWW-Authenticate` discovery challenges, previously rewritten to `204`) and routed RFC 9728 `/.well-known/*` OAuth discovery requests to the upstream origin root instead of nesting under the upstream MCP path.
 
 ## [0.4.1] - 2026-11-27
 

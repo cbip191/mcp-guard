@@ -26,6 +26,7 @@ import {
   createFrameParser,
   encodeFrame,
   inspectFrame,
+  resolveSpawnSpec,
   DEFAULT_MAX_FRAME_BYTES,
 } from "./proxy.mjs";
 import {
@@ -76,6 +77,7 @@ export {
   createFrameParser,
   encodeFrame,
   inspectFrame,
+  resolveSpawnSpec,
   DEFAULT_MAX_FRAME_BYTES,
   buildAuditEntry,
   createAuditLogger,
