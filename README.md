@@ -130,6 +130,13 @@ claude mcp add guarded-github -- \
     "allowSecretFields": {
       "vault_write_secret": ["value"]
     }
+  },
+  "redaction": {
+    "disabledRules": ["PHONE_NUMBER"],
+    "customRules": [
+      { "id": "ACME_INTERNAL_TOKEN", "pattern": "acme_tok_[a-z0-9]{16,32}", "severity": "critical" }
+    ],
+    "allowPatterns": ["^support-bot@client\\.example$"]
   }
 }
 ```

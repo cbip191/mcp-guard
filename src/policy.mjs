@@ -6,6 +6,13 @@
  */
 import { readFileSync } from "node:fs";
 import { SEVERITY_RANK } from "./injection.mjs";
+import { SECRET_RULES, PII_RULES, compileSafeRegex } from "./redact.mjs";
+
+const BUILT_IN_RULE_IDS = new Set([
+  ...SECRET_RULES.map((r) => r.id),
+  ...PII_RULES.map((r) => r.id),
+]);
+const CUSTOM_RULE_ID_RE = /^[A-Z][A-Z0-9_]{1,63}$/;
 
 const ALLOWED_TOP_KEYS = new Set(["tools", "redaction", "injection"]);
 const ALLOWED_TOOLS_KEYS = new Set(["allow", "deny", "argConstraints", "allowSecretFields"]);
@@ -14,7 +21,11 @@ const ALLOWED_REDACTION_KEYS = new Set([
   "redactOutboundPii",
   "pseudonymizePii",
   "allowEmailDomains",
+  "disabledRules",
+  "customRules",
+  "allowPatterns",
 ]);
+const ALLOWED_CUSTOM_RULE_KEYS = new Set(["id", "pattern", "flags", "severity"]);
 const ALLOWED_INJECTION_KEYS = new Set([
   "taintUntrusted",
   "blockInjections",
@@ -175,6 +186,78 @@ export function validatePolicy(raw) {
       normalized.redaction.allowEmailDomains = raw.redaction.allowEmailDomains.map((d) =>
         d.trim().toLowerCase()
       );
+    }
+    if (raw.redaction.disabledRules !== undefined) {
+      assertStringArray(raw.redaction.disabledRules, "redaction.disabledRules");
+      for (const id of raw.redaction.disabledRules) {
+        if (!BUILT_IN_RULE_IDS.has(id)) {
+          throw new Error(`Invalid policy: unknown built-in rule "${id}" in redaction.disabledRules.`);
+        }
+      }
+      normalized.redaction.disabledRules = [...new Set(raw.redaction.disabledRules)];
+    }
+    if (raw.redaction.customRules !== undefined) {
+      if (!Array.isArray(raw.redaction.customRules)) {
+        throw new Error('Invalid policy: "redaction.customRules" must be an array.');
+      }
+      const seenCustom = new Set();
+      const compiledRules = [];
+      for (let i = 0; i < raw.redaction.customRules.length; i++) {
+        const entry = raw.redaction.customRules[i];
+        const label = `redaction.customRules[${i}]`;
+        assertPlainObject(entry, label);
+        assertAllowedKeys(entry, ALLOWED_CUSTOM_RULE_KEYS, label);
+
+        if (typeof entry.id !== "string" || !CUSTOM_RULE_ID_RE.test(entry.id)) {
+          throw new Error(
+            `Invalid policy: "${label}.id" must match /^[A-Z][A-Z0-9_]{1,63}$/.`
+          );
+        }
+        if (BUILT_IN_RULE_IDS.has(entry.id) || seenCustom.has(entry.id)) {
+          throw new Error(
+            `Invalid policy: duplicate or built-in colliding rule id "${entry.id}" in ${label}.`
+          );
+        }
+        seenCustom.add(entry.id);
+
+        const severity =
+          entry.severity !== undefined ? String(entry.severity).trim().toLowerCase() : "high";
+        if (!Object.prototype.hasOwnProperty.call(SEVERITY_RANK, severity)) {
+          throw new Error(
+            `Invalid policy: "${label}.severity" must be one of: low, medium, high, critical.`
+          );
+        }
+
+        let compiled;
+        try {
+          compiled = compileSafeRegex(entry.pattern, entry.flags ?? "", { requireGlobal: true });
+        } catch (err) {
+          throw new Error(`Invalid policy: "${label}.pattern": ${err.message}`);
+        }
+
+        compiledRules.push({
+          id: entry.id,
+          pattern: compiled,
+          source: entry.pattern,
+          flags: compiled.flags,
+          severity,
+        });
+      }
+      normalized.redaction.customRules = compiledRules;
+    }
+    if (raw.redaction.allowPatterns !== undefined) {
+      assertStringArray(raw.redaction.allowPatterns, "redaction.allowPatterns");
+      const compiledAllow = [];
+      for (let i = 0; i < raw.redaction.allowPatterns.length; i++) {
+        try {
+          compiledAllow.push(
+            compileSafeRegex(raw.redaction.allowPatterns[i], "", { requireGlobal: false })
+          );
+        } catch (err) {
+          throw new Error(`Invalid policy: "redaction.allowPatterns[${i}]": ${err.message}`);
+        }
+      }
+      normalized.redaction.allowPatterns = compiledAllow;
     }
   }
 

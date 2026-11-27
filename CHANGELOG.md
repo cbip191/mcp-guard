@@ -7,6 +7,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ## [Unreleased]
 
 ### Added
+- **Custom redaction rules, rule suppression & allowlist patterns (`src/redact.mjs`, `src/policy.mjs`):** Added `compileSafeRegex()` (syntax, flag, nested-quantifier, and adversarial ReDoS probe guard), `redaction.disabledRules` (validated against built-in rule IDs), `redaction.customRules` (always one-way `[REDACTED:<ID>]`), and `redaction.allowPatterns` across `redactText`, `redactPayload`, `guardMcpResponse`, `mcp-guard.json`, stdio proxy, and HTTP/SSE proxy.
 - **Automated npm OIDC provenance release workflow (`.github/workflows/release.yml`):** Tag-triggered (`v*.*.*`) GitHub Actions workflow verifying `tag === v<package.json.version>`, running `npm run check && npm test && npm run demo`, and publishing with `npm publish --provenance --access public` via npm OIDC Trusted Publishing (zero long-lived npm secrets), documented in `CONTRIBUTING.md` and `SECURITY.md`.
 
 ## [0.4.1] - 2026-11-27

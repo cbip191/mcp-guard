@@ -5,6 +5,7 @@ import {
   hashSecret,
   isValidLuhn,
   isValidIban,
+  compileSafeRegex,
   createPiiPseudonymizer,
   PII_PSEUDONYM_PREFIX,
   SECRET_RULES,
@@ -49,6 +50,7 @@ import {
 const entropy: number = shannonEntropy("abc123");
 const luhnOk: boolean = isValidLuhn("4242424242424242");
 const ibanOk: boolean = isValidIban("DE89 3704 0044 0532 0130 00");
+const safeRe: RegExp = compileSafeRegex("acme_[A-Za-z0-9]{12}", "i", { requireGlobal: true });
 const pseudo: PiiPseudonymizer = createPiiPseudonymizer({ maxEntries: 500 });
 const pseudoToken: string = pseudo.pseudonymize("EMAIL_ADDRESS", "maria@client.com");
 const pseudoStats = pseudo.stats();
@@ -116,6 +118,11 @@ const policy: GuardPolicy = validatePolicy({
     argConstraints: { "jira_*": { project_key: ["HBR"] } },
     allowSecretFields: { vault_write_secret: ["value"] },
   },
+  redaction: {
+    disabledRules: ["PHONE_NUMBER"],
+    customRules: [{ id: "ACME_TOKEN", pattern: "acme_[A-Za-z0-9]{16}", severity: "critical" }],
+    allowPatterns: ["^555-01\\d{2}$"],
+  },
 });
 const globOk: boolean = matchGlob("jira_*", "jira_get_issue");
 const decision = evaluateToolCallPolicy("jira_get_issue", { project_key: "HBR" }, policy);
@@ -138,6 +145,7 @@ void [
   entropy,
   luhnOk,
   ibanOk,
+  safeRe,
   pseudoToken,
   pseudoStats,
   PII_PSEUDONYM_PREFIX,

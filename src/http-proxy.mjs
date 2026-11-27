@@ -300,6 +300,9 @@ export async function startHttpProxy(options = {}) {
       options.allowEmailDomains && options.allowEmailDomains.length > 0
         ? options.allowEmailDomains
         : (policy?.redaction?.allowEmailDomains ?? []),
+    disabledRules: options.disabledRules ?? policy?.redaction?.disabledRules ?? null,
+    customRules: options.customRules ?? policy?.redaction?.customRules ?? null,
+    allowPatterns: options.allowPatterns ?? policy?.redaction?.allowPatterns ?? null,
     blockInjections: options.blockInjections ?? policy?.injection?.blockInjections ?? false,
     blockMinRules: options.blockMinRules ?? policy?.injection?.blockMinRules ?? 2,
     taintUntrusted: options.taintUntrusted ?? policy?.injection?.taintUntrusted ?? true,
