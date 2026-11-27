@@ -7,8 +7,10 @@ import {
   wrapUntrustedField,
 } from "./injection.mjs";
 import { buildAuditEntry, createAuditLogger } from "./audit.mjs";
+import { evaluateToolCallPolicy, getOutboundSecretSkipPaths } from "./policy.mjs";
 
 const MAX_HEADER_BYTES = 8192;
+export const DEFAULT_MAX_FRAME_BYTES = 16 * 1024 * 1024; // 16 MiB DoS cap
 const SIGNAL_EXIT_CODES = {
   SIGINT: 130,
   SIGTERM: 143,
@@ -24,14 +26,43 @@ function isPartialContentLengthPrefix(str) {
 
 /**
  * Byte-accurate incremental parser supporting both NDJSON (\n-delimited)
- * and LSP/MCP Content-Length framed JSON-RPC streams.
+ * and LSP/MCP Content-Length framed JSON-RPC streams with bounded memory (maxFrameBytes).
  */
-export function createFrameParser(onFrame) {
+export function createFrameParser(onFrame, options = {}) {
+  const { maxFrameBytes = DEFAULT_MAX_FRAME_BYTES, onError = null } = options;
   let buf = Buffer.alloc(0);
   let expectedBytes = null;
+  let discardingUntilNewline = false;
+  let discardingBytesRemaining = 0;
+
+  function emitError(err) {
+    if (onError) onError(err);
+  }
 
   function drain() {
     while (buf.length > 0) {
+      if (discardingBytesRemaining > 0) {
+        if (buf.length <= discardingBytesRemaining) {
+          discardingBytesRemaining -= buf.length;
+          buf = Buffer.alloc(0);
+          return;
+        }
+        buf = buf.subarray(discardingBytesRemaining);
+        discardingBytesRemaining = 0;
+        continue;
+      }
+
+      if (discardingUntilNewline) {
+        const nlIdx = buf.indexOf(0x0a);
+        if (nlIdx === -1) {
+          buf = Buffer.alloc(0);
+          return;
+        }
+        buf = buf.subarray(nlIdx + 1);
+        discardingUntilNewline = false;
+        continue;
+      }
+
       if (expectedBytes !== null) {
         if (buf.length < expectedBytes) {
           return;
@@ -68,13 +99,11 @@ export function createFrameParser(onFrame) {
 
         if (sepIdx === -1) {
           if (buf.length > MAX_HEADER_BYTES) {
-            // Malformed runaway header: fall back to line flush so we never stall or OOM
-            const nlIdx = buf.indexOf(0x0a);
-            const end = nlIdx === -1 ? buf.length : nlIdx;
-            const raw = buf.subarray(0, end).toString("utf8").replace(/\r$/, "");
-            buf = nlIdx === -1 ? Buffer.alloc(0) : buf.subarray(nlIdx + 1);
-            onFrame({ framing: "ndjson", raw });
-            continue;
+            // Malformed runaway header: drop and discard until next newline to prevent unbounded buffering
+            emitError({ code: "HEADER_TOO_LARGE", bytes: buf.length, maxBytes: MAX_HEADER_BYTES });
+            buf = Buffer.alloc(0);
+            discardingUntilNewline = true;
+            return;
           }
           return;
         }
@@ -82,7 +111,6 @@ export function createFrameParser(onFrame) {
         const headerText = buf.subarray(0, sepIdx).toString("ascii");
         const match = headerText.match(/content-length\s*:\s*(\d+)/i);
         if (!match) {
-          // Malformed header without numeric length: treat header block as raw line
           const raw = headerText.replace(/\r/g, "");
           buf = buf.subarray(sepIdx + sepLen);
           onFrame({ framing: "ndjson", raw });
@@ -98,6 +126,12 @@ export function createFrameParser(onFrame) {
         }
 
         buf = buf.subarray(sepIdx + sepLen);
+        if (len > maxFrameBytes) {
+          emitError({ code: "FRAME_TOO_LARGE", bytes: len, maxBytes: maxFrameBytes });
+          discardingBytesRemaining = len;
+          continue;
+        }
+
         expectedBytes = len;
         continue;
       }
@@ -110,7 +144,17 @@ export function createFrameParser(onFrame) {
       // Standard NDJSON framing (\n-delimited)
       const nlIdx = buf.indexOf(0x0a);
       if (nlIdx === -1) {
+        if (buf.length > maxFrameBytes) {
+          emitError({ code: "FRAME_TOO_LARGE", bytes: buf.length, maxBytes: maxFrameBytes });
+          buf = Buffer.alloc(0);
+          discardingUntilNewline = true;
+        }
         return;
+      }
+      if (nlIdx > maxFrameBytes) {
+        emitError({ code: "FRAME_TOO_LARGE", bytes: nlIdx, maxBytes: maxFrameBytes });
+        buf = buf.subarray(nlIdx + 1);
+        continue;
       }
       const raw = buf.subarray(0, nlIdx).toString("utf8").replace(/\r$/, "");
       buf = buf.subarray(nlIdx + 1);
@@ -122,12 +166,46 @@ export function createFrameParser(onFrame) {
     push(chunk) {
       const incoming = Buffer.isBuffer(chunk) ? chunk : Buffer.from(String(chunk), "utf8");
       if (incoming.length === 0) return;
+
+      // Fast path while discarding an already-rejected oversized frame (O(1) memory)
+      if (discardingBytesRemaining > 0) {
+        if (incoming.length <= discardingBytesRemaining) {
+          discardingBytesRemaining -= incoming.length;
+          return;
+        }
+        buf = incoming.subarray(discardingBytesRemaining);
+        discardingBytesRemaining = 0;
+        drain();
+        return;
+      }
+      if (discardingUntilNewline) {
+        const nlIdx = incoming.indexOf(0x0a);
+        if (nlIdx === -1) return;
+        discardingUntilNewline = false;
+        buf = incoming.subarray(nlIdx + 1);
+        drain();
+        return;
+      }
+
       buf = buf.length === 0 ? incoming : Buffer.concat([buf, incoming]);
       drain();
     },
     end() {
       drain();
+      if (discardingUntilNewline || discardingBytesRemaining > 0) {
+        buf = Buffer.alloc(0);
+        discardingUntilNewline = false;
+        discardingBytesRemaining = 0;
+        expectedBytes = null;
+        return;
+      }
       if (buf.length > 0) {
+        if (buf.length > maxFrameBytes) {
+          emitError({ code: "FRAME_TOO_LARGE", bytes: buf.length, maxBytes: maxFrameBytes });
+          buf = Buffer.alloc(0);
+          expectedBytes = null;
+          return;
+        }
         const raw = buf.toString("utf8").replace(/\r$/, "");
         buf = Buffer.alloc(0);
         expectedBytes = null;
@@ -174,6 +252,22 @@ function buildBlockedError(id, message, alerts) {
   };
 }
 
+function buildPolicyDeniedError(id, tool, ruleId, reason) {
+  return {
+    jsonrpc: "2.0",
+    id,
+    error: {
+      code: -32002,
+      message: `Blocked by mcp-guard policy: ${reason}`,
+      data: {
+        blockedBy: "mcp-guard",
+        ruleId,
+        tool,
+      },
+    },
+  };
+}
+
 function shouldBlockAlerts(alerts, blockMinRules) {
   if (alerts.length === 0) return false;
   if (alerts.some((a) => a.severity === "critical")) return true;
@@ -190,13 +284,58 @@ function inspectSingleJsonRpcMessage(parsed, direction, options) {
     blockMinRules = 2,
     taintUntrusted = true,
     injectionThreshold = "medium",
+    policy = null,
   } = options;
 
+  // Enforce declarative mcp-guard.json tool/argument policy BEFORE upstream execution
+  if (
+    direction === "agent->mcp" &&
+    policy &&
+    parsed &&
+    typeof parsed === "object" &&
+    parsed.method === "tools/call"
+  ) {
+    const toolName =
+      parsed.params && typeof parsed.params === "object" && typeof parsed.params.name === "string"
+        ? parsed.params.name
+        : "";
+    const toolArgs =
+      parsed.params && typeof parsed.params === "object" && parsed.params.arguments && typeof parsed.params.arguments === "object"
+        ? parsed.params.arguments
+        : {};
+    const decision = evaluateToolCallPolicy(toolName, toolArgs, policy);
+    if (!decision.allowed) {
+      const hasId = parsed.id !== undefined && parsed.id !== null;
+      return {
+        action: "policy_denied",
+        message: null,
+        replyToUpstream: null,
+        replyToClient: hasId
+          ? buildPolicyDeniedError(parsed.id, toolName || null, decision.ruleId, decision.reason)
+          : null,
+        findings: [],
+        injectionAlerts: [],
+        policyRules: [decision.ruleId],
+        taintedPaths: [],
+      };
+    }
+  }
+
   const shouldRedactPii = direction === "agent->mcp" ? redactOutboundPii : redactPii;
+  const skipPaths =
+    direction === "agent->mcp" &&
+    policy &&
+    parsed &&
+    typeof parsed === "object" &&
+    parsed.method === "tools/call" &&
+    typeof parsed.params?.name === "string"
+      ? getOutboundSecretSkipPaths(parsed.params.name, policy)
+      : null;
 
   const { sanitized, findings } = redactPayload(parsed, {
     redactPii: shouldRedactPii,
     allowEmailDomains,
+    skipPaths,
   });
 
   if (direction === "agent->mcp") {
@@ -204,8 +343,10 @@ function inspectSingleJsonRpcMessage(parsed, direction, options) {
       action: "forward",
       message: sanitized,
       replyToUpstream: null,
+      replyToClient: null,
       findings,
       injectionAlerts: [],
+      policyRules: [],
       taintedPaths: [],
     };
   }
@@ -233,8 +374,10 @@ function inspectSingleJsonRpcMessage(parsed, direction, options) {
           "Blocked by mcp-guard: server-to-client request blocked due to indirect prompt injection.",
           injectionAlerts
         ),
+        replyToClient: null,
         findings,
         injectionAlerts,
+        policyRules: [],
         taintedPaths: [],
       };
     }
@@ -245,8 +388,10 @@ function inspectSingleJsonRpcMessage(parsed, direction, options) {
         action: "drop",
         message: null,
         replyToUpstream: null,
+        replyToClient: null,
         findings,
         injectionAlerts,
+        policyRules: [],
         taintedPaths: [],
       };
     }
@@ -261,8 +406,10 @@ function inspectSingleJsonRpcMessage(parsed, direction, options) {
           injectionAlerts
         ),
         replyToUpstream: null,
+        replyToClient: null,
         findings,
         injectionAlerts,
+        policyRules: [],
         taintedPaths: [],
       };
     }
@@ -272,8 +419,10 @@ function inspectSingleJsonRpcMessage(parsed, direction, options) {
       action: "drop",
       message: null,
       replyToUpstream: null,
+      replyToClient: null,
       findings,
       injectionAlerts,
+      policyRules: [],
       taintedPaths: [],
     };
   }
@@ -286,8 +435,10 @@ function inspectSingleJsonRpcMessage(parsed, direction, options) {
       action: "tainted",
       message: tainted,
       replyToUpstream: null,
+      replyToClient: null,
       findings,
       injectionAlerts,
+      policyRules: [],
       taintedPaths,
     };
   }
@@ -296,8 +447,10 @@ function inspectSingleJsonRpcMessage(parsed, direction, options) {
     action: "forward",
     message: sanitized,
     replyToUpstream: null,
+    replyToClient: null,
     findings,
     injectionAlerts,
+    policyRules: [],
     taintedPaths: [],
   };
 }
@@ -322,8 +475,10 @@ export function inspectFrame(raw, direction, options = {}) {
       action: "ignore",
       output: null,
       repliesToUpstream: [],
+      repliesToClient: [],
       findings: [],
       injectionAlerts: [],
+      policyRules: [],
       taintedPaths: [],
       unparseable: false,
       id: null,
@@ -356,8 +511,10 @@ export function inspectFrame(raw, direction, options = {}) {
         action: "drop",
         output: null,
         repliesToUpstream: [],
+        repliesToClient: [],
         findings,
         injectionAlerts,
+        policyRules: [],
         taintedPaths: [],
         unparseable: true,
         id: null,
@@ -371,8 +528,10 @@ export function inspectFrame(raw, direction, options = {}) {
         action: "tainted",
         output: wrapUntrustedField(redacted, injectionAlerts),
         repliesToUpstream: [],
+        repliesToClient: [],
         findings,
         injectionAlerts,
+        policyRules: [],
         taintedPaths: [""],
         unparseable: true,
         id: null,
@@ -385,8 +544,10 @@ export function inspectFrame(raw, direction, options = {}) {
       action: "forward",
       output: redacted,
       repliesToUpstream: [],
+      repliesToClient: [],
       findings,
       injectionAlerts,
+      policyRules: [],
       taintedPaths: [],
       unparseable: true,
       id: null,
@@ -399,21 +560,29 @@ export function inspectFrame(raw, direction, options = {}) {
   if (Array.isArray(parsed)) {
     const outBatch = [];
     const repliesToUpstream = [];
+    const repliesToClient = [];
     const allFindings = [];
     const allAlerts = [];
+    const allPolicyRules = [];
     const allTaintedPaths = [];
     let blockedCount = 0;
+    let policyDeniedCount = 0;
     let taintedCount = 0;
 
     for (const item of parsed) {
       const res = inspectSingleJsonRpcMessage(item, direction, options);
       allFindings.push(...res.findings);
       allAlerts.push(...res.injectionAlerts);
+      allPolicyRules.push(...res.policyRules);
       allTaintedPaths.push(...res.taintedPaths);
       if (res.replyToUpstream) {
         repliesToUpstream.push(JSON.stringify(res.replyToUpstream));
       }
+      if (res.replyToClient) {
+        repliesToClient.push(JSON.stringify(res.replyToClient));
+      }
       if (res.action === "tainted") taintedCount++;
+      if (res.action === "policy_denied") policyDeniedCount++;
       if (res.message !== null) {
         outBatch.push(res.message);
       } else {
@@ -422,7 +591,8 @@ export function inspectFrame(raw, direction, options = {}) {
     }
 
     let action = "forward";
-    if (outBatch.length === 0) action = "drop";
+    if (outBatch.length === 0 && policyDeniedCount > 0) action = "policy_denied";
+    else if (outBatch.length === 0) action = "drop";
     else if (blockedCount > 0) action = "replace";
     else if (taintedCount > 0) action = "tainted";
 
@@ -430,8 +600,10 @@ export function inspectFrame(raw, direction, options = {}) {
       action,
       output: outBatch.length > 0 ? JSON.stringify(outBatch) : null,
       repliesToUpstream,
+      repliesToClient,
       findings: allFindings,
       injectionAlerts: allAlerts,
+      policyRules: allPolicyRules,
       taintedPaths: allTaintedPaths,
       unparseable: false,
       id: null,
@@ -461,8 +633,10 @@ export function inspectFrame(raw, direction, options = {}) {
     action: res.action,
     output: res.message !== null ? JSON.stringify(res.message) : null,
     repliesToUpstream: res.replyToUpstream ? [JSON.stringify(res.replyToUpstream)] : [],
+    repliesToClient: res.replyToClient ? [JSON.stringify(res.replyToClient)] : [],
     findings: res.findings,
     injectionAlerts: res.injectionAlerts,
+    policyRules: res.policyRules,
     taintedPaths: res.taintedPaths,
     unparseable: false,
     id,
@@ -485,7 +659,13 @@ function safeWrite(stream, data) {
 }
 
 function mapAuditAction(res) {
-  if (res.action === "replace" || res.action === "drop_and_reply") return "blocked";
+  if (
+    res.action === "replace" ||
+    res.action === "drop_and_reply" ||
+    res.action === "policy_denied"
+  ) {
+    return "blocked";
+  }
   if (res.action === "drop") return "dropped";
   if (res.action === "tainted") return "tainted";
   if (res.findings.length > 0) return "redacted";
@@ -496,22 +676,33 @@ const MAX_PENDING_CALLS = 1000;
 
 /**
  * Wraps any stdio MCP server process as a bidirectional JSON-RPC firewall:
+ * - Enforces declarative mcp-guard.json tool/argument policies before upstream execution.
  * - Inspects stdin (agent -> MCP) to block outbound secret leaks (opt-in PII via redactOutboundPii).
  * - Inspects stdout (MCP -> agent) to scrub secrets/PII and taint/block indirect prompt injections.
- * - Supports both NDJSON and Content-Length framing and never fails open on unparseable frames.
+ * - Supports bounded NDJSON and Content-Length framing (maxFrameBytes) and never fails open.
  * - Optionally writes append-only structured JSONL audit logs (never raw secrets).
  * - Drains child stdout and audit log completely before exiting and forwards SIGINT/SIGTERM cleanly.
  * - Audit telemetry is written strictly to stderr so stdout stays valid MCP JSON-RPC.
  */
 export function runStdioProxy(command, args = [], options = {}) {
+  const policy = options.policy ?? null;
+  const redactPii = options.redactPii ?? policy?.redaction?.redactPii ?? true;
+  const redactOutboundPii =
+    options.redactOutboundPii ?? policy?.redaction?.redactOutboundPii ?? false;
+  const allowEmailDomains =
+    options.allowEmailDomains && options.allowEmailDomains.length > 0
+      ? options.allowEmailDomains
+      : (policy?.redaction?.allowEmailDomains ?? []);
+  const blockInjections =
+    options.blockInjections ?? policy?.injection?.blockInjections ?? false;
+  const blockMinRules = options.blockMinRules ?? policy?.injection?.blockMinRules ?? 2;
+  const taintUntrusted =
+    options.taintUntrusted ?? policy?.injection?.taintUntrusted ?? true;
+  const injectionThreshold =
+    options.injectionThreshold ?? policy?.injection?.threshold ?? "medium";
+  const maxFrameBytes = options.maxFrameBytes ?? DEFAULT_MAX_FRAME_BYTES;
+
   const {
-    redactPii = true,
-    redactOutboundPii = false,
-    blockInjections = false,
-    blockMinRules = 2,
-    taintUntrusted = true,
-    injectionThreshold = "medium",
-    allowEmailDomains = [],
     auditLog = null,
     onAuditEntry = null,
     input = process.stdin,
@@ -529,6 +720,7 @@ export function runStdioProxy(command, args = [], options = {}) {
     taintUntrusted,
     injectionThreshold,
     allowEmailDomains,
+    policy,
   };
 
   function logAudit(line) {
@@ -579,6 +771,7 @@ export function runStdioProxy(command, args = [], options = {}) {
       action: mapAuditAction(res),
       findings: res.findings,
       injectionAlerts: res.injectionAlerts,
+      extraRules: res.policyRules,
       latencyMs,
     });
     if (auditLogger) auditLogger.write(entry);
@@ -643,35 +836,49 @@ export function runStdioProxy(command, args = [], options = {}) {
   output.on("error", onOutputError);
 
   // Direction 1: agent -> MCP (stdin -> child.stdin)
-  const inboundParser = createFrameParser(({ framing, raw }) => {
-    const t0 = performance.now();
-    const res = inspectFrame(raw, "agent->mcp", inspectOpts);
-    const latencyMs = performance.now() - t0;
+  const inboundParser = createFrameParser(
+    ({ framing, raw }) => {
+      const t0 = performance.now();
+      const res = inspectFrame(raw, "agent->mcp", inspectOpts);
+      const latencyMs = performance.now() - t0;
 
-    if (res.id !== null && res.method !== null) {
-      if (pendingCalls.size >= MAX_PENDING_CALLS) {
-        const oldestKey = pendingCalls.keys().next().value;
-        pendingCalls.delete(oldestKey);
+      if (res.action !== "policy_denied" && res.id !== null && res.method !== null) {
+        if (pendingCalls.size >= MAX_PENDING_CALLS) {
+          const oldestKey = pendingCalls.keys().next().value;
+          pendingCalls.delete(oldestKey);
+        }
+        pendingCalls.set(String(res.id), { method: res.method, tool: res.tool });
       }
-      pendingCalls.set(String(res.id), { method: res.method, tool: res.tool });
-    }
 
-    recordAudit("agent->mcp", res, res.method, res.tool, latencyMs);
+      recordAudit("agent->mcp", res, res.method, res.tool, latencyMs);
 
-    if (res.findings.length > 0 || res.unparseable) {
-      const parts = [
-        "dir=agent->mcp",
-        res.method ? `method=${res.method}` : null,
-        res.tool ? `tool=${res.tool}` : null,
-        res.unparseable ? "unparseable_frame=true" : null,
-        `scrubbed=${res.findings.length}`,
-      ].filter(Boolean);
-      logAudit(parts.join(" "));
+      if (res.findings.length > 0 || res.policyRules.length > 0 || res.unparseable) {
+        const parts = [
+          "dir=agent->mcp",
+          res.method ? `method=${res.method}` : null,
+          res.tool ? `tool=${res.tool}` : null,
+          res.action !== "forward" ? `action=${res.action}` : null,
+          res.policyRules.length > 0 ? `policy=${res.policyRules.join(",")}` : null,
+          res.unparseable ? "unparseable_frame=true" : null,
+          `scrubbed=${res.findings.length}`,
+        ].filter(Boolean);
+        logAudit(parts.join(" "));
+      }
+
+      for (const reply of res.repliesToClient) {
+        safeWrite(output, encodeFrame(reply, framing));
+      }
+
+      if (res.output !== null) {
+        safeWrite(child.stdin, encodeFrame(res.output, framing));
+      }
+    },
+    {
+      maxFrameBytes,
+      onError: (err) =>
+        logAudit(`dir=agent->mcp parser_error=${err.code} bytes=${err.bytes} max=${err.maxBytes}`),
     }
-    if (res.output !== null) {
-      safeWrite(child.stdin, encodeFrame(res.output, framing));
-    }
-  });
+  );
 
   const onInputData = (chunk) => inboundParser.push(chunk);
   const onInputEnd = () => {
@@ -684,46 +891,53 @@ export function runStdioProxy(command, args = [], options = {}) {
   input.on("end", onInputEnd);
 
   // Direction 2: MCP -> agent (child.stdout -> output)
-  const outboundParser = createFrameParser(({ framing, raw }) => {
-    const t0 = performance.now();
-    const res = inspectFrame(raw, "mcp->agent", inspectOpts);
-    const latencyMs = performance.now() - t0;
+  const outboundParser = createFrameParser(
+    ({ framing, raw }) => {
+      const t0 = performance.now();
+      const res = inspectFrame(raw, "mcp->agent", inspectOpts);
+      const latencyMs = performance.now() - t0;
 
-    let correlatedMethod = res.method;
-    let correlatedTool = res.tool;
-    if (res.id !== null && correlatedMethod === null) {
-      const key = String(res.id);
-      const pending = pendingCalls.get(key);
-      if (pending) {
-        correlatedMethod = pending.method;
-        correlatedTool = pending.tool;
-        pendingCalls.delete(key);
+      let correlatedMethod = res.method;
+      let correlatedTool = res.tool;
+      if (res.id !== null && correlatedMethod === null) {
+        const key = String(res.id);
+        const pending = pendingCalls.get(key);
+        if (pending) {
+          correlatedMethod = pending.method;
+          correlatedTool = pending.tool;
+          pendingCalls.delete(key);
+        }
       }
-    }
 
-    recordAudit("mcp->agent", res, correlatedMethod, correlatedTool, latencyMs);
+      recordAudit("mcp->agent", res, correlatedMethod, correlatedTool, latencyMs);
 
-    if (res.findings.length > 0 || res.injectionAlerts.length > 0 || res.unparseable) {
-      const parts = [
-        "dir=mcp->agent",
-        correlatedMethod ? `method=${correlatedMethod}` : null,
-        correlatedTool ? `tool=${correlatedTool}` : null,
-        res.action !== "forward" ? `action=${res.action}` : null,
-        res.unparseable ? "unparseable_frame=true" : null,
-        `scrubbed=${res.findings.length}`,
-        `injection_alerts=${res.injectionAlerts.length}`,
-      ].filter(Boolean);
-      logAudit(parts.join(" "));
-    }
+      if (res.findings.length > 0 || res.injectionAlerts.length > 0 || res.unparseable) {
+        const parts = [
+          "dir=mcp->agent",
+          correlatedMethod ? `method=${correlatedMethod}` : null,
+          correlatedTool ? `tool=${correlatedTool}` : null,
+          res.action !== "forward" ? `action=${res.action}` : null,
+          res.unparseable ? "unparseable_frame=true" : null,
+          `scrubbed=${res.findings.length}`,
+          `injection_alerts=${res.injectionAlerts.length}`,
+        ].filter(Boolean);
+        logAudit(parts.join(" "));
+      }
 
-    for (const reply of res.repliesToUpstream) {
-      safeWrite(child.stdin, encodeFrame(reply, framing));
-    }
+      for (const reply of res.repliesToUpstream) {
+        safeWrite(child.stdin, encodeFrame(reply, framing));
+      }
 
-    if (res.output !== null) {
-      safeWrite(output, encodeFrame(res.output, framing));
+      if (res.output !== null) {
+        safeWrite(output, encodeFrame(res.output, framing));
+      }
+    },
+    {
+      maxFrameBytes,
+      onError: (err) =>
+        logAudit(`dir=mcp->agent parser_error=${err.code} bytes=${err.bytes} max=${err.maxBytes}`),
     }
-  });
+  );
 
   child.stdout.on("data", (chunk) => outboundParser.push(chunk));
   child.stdout.on("end", () => {

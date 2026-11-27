@@ -5,6 +5,7 @@ import {
   runStdioProxy,
   summarizeAuditLog,
   formatAuditSummary,
+  loadPolicyFile,
   SEVERITY_RANK,
 } from "../src/index.mjs";
 
@@ -52,6 +53,7 @@ const VALUE_FLAGS = new Set([
   "--injection-threshold",
   "--block-min-rules",
   "--audit-log",
+  "--policy",
 ]);
 
 function printHelp() {
@@ -62,14 +64,16 @@ Usage:
       Run a built-in multi-client agency audit (secrets, PII, ACL isolation, prompt injection).
 
   mcp-guard scan <file.json|-> [--jsonl] [--scopes s1,s2] [--allow-domain agency.dev] [--no-pii]
-                 [--injection-threshold <low|medium|high|critical>] [--taint-untrusted]
+                 [--injection-threshold <low|medium|high|critical>] [--taint-untrusted] [--show-previews]
       Scan a JSON or JSONL export (or '-' for stdin). Exits 0 if clean, 1 if findings exist, 2 on error.
+      Secret previews are omitted by default (SHA-256 hashes only) for CI log safety; pass --show-previews locally.
 
-  mcp-guard proxy [--taint-untrusted | --no-taint] [--block-injections] [--block-min-rules <n>]
-                  [--injection-threshold <low|medium|high|critical>] [--no-pii] [--redact-outbound-pii]
-                  [--allow-domain agency.dev] [--audit-log <path.jsonl>] -- <upstream-mcp-command> [args...]
-      Wrap any stdio MCP server: always scrubs outbound secrets (opt-in PII via --redact-outbound-pii),
-      scrubs inbound secrets/PII, and quarantines flagged fields by default (--no-taint to disable).
+  mcp-guard proxy [--policy <mcp-guard.json>] [--taint-untrusted | --no-taint] [--block-injections]
+                  [--block-min-rules <n>] [--injection-threshold <low|medium|high|critical>] [--no-pii]
+                  [--redact-outbound-pii] [--allow-domain agency.dev] [--audit-log <path.jsonl>]
+                  -- <upstream-mcp-command> [args...]
+      Wrap any stdio MCP server: enforces mcp-guard.json tool/arg policies before execution, scrubs outbound
+      secrets (opt-in PII via --redact-outbound-pii), scrubs inbound secrets/PII, and taints flagged fields.
 
   mcp-guard audit <logfile.jsonl|-> [--json]
       Summarize a JSONL audit log (top triggered rules, MCP tools, blocked/redacted counts, latency).
@@ -238,6 +242,14 @@ if (cmd === "demo") {
   process.exit(0);
 }
 
+function sanitizeReportForCli(report, showPreviews) {
+  if (showPreviews) return report;
+  return {
+    ...report,
+    findings: report.findings.map(({ preview: _omitted, ...rest }) => rest),
+  };
+}
+
 if (cmd === "scan") {
   const scanArgs = args.slice(1);
   const positionals = extractPositionalArgs(scanArgs);
@@ -252,6 +264,7 @@ if (cmd === "scan") {
   const allowDomainRaw = getFlagValue(scanArgs, "--allow-domain");
   const injectionThreshold = parseInjectionThreshold(scanArgs);
   const forceJsonl = scanArgs.includes("--jsonl");
+  const showPreviews = scanArgs.includes("--show-previews");
 
   const guardOpts = {
     callerScopes: scopesRaw ? scopesRaw.split(",").map((s) => s.trim()).filter(Boolean) : null,
@@ -280,7 +293,7 @@ if (cmd === "scan") {
       if (!res.report.safe) unsafeRecords++;
       records.push({
         line: entry.line,
-        ...res.report,
+        ...sanitizeReportForCli(res.report, showPreviews),
       });
     }
 
@@ -299,7 +312,7 @@ if (cmd === "scan") {
   }
 
   const result = guardMcpResponse(parsed.data, guardOpts);
-  console.log(JSON.stringify(result.report, null, 2));
+  console.log(JSON.stringify(sanitizeReportForCli(result.report, showPreviews), null, 2));
   process.exit(result.report.safe ? 0 : 1);
 }
 
@@ -335,9 +348,11 @@ if (cmd === "proxy") {
   const upstreamArgs = args.slice(sep + 2);
   const allowDomainRaw = getFlagValue(flags, "--allow-domain");
   const auditLog = getFlagValue(flags, "--audit-log");
-  const injectionThreshold = parseInjectionThreshold(flags);
+  const policyPath = getFlagValue(flags, "--policy") || process.env.MCP_GUARD_POLICY || null;
+  const thresholdRaw = getFlagValue(flags, "--injection-threshold");
+  const injectionThreshold = thresholdRaw !== null ? parseInjectionThreshold(flags) : undefined;
   const blockMinRulesRaw = getFlagValue(flags, "--block-min-rules");
-  let blockMinRules = 2;
+  let blockMinRules;
   if (blockMinRulesRaw !== null) {
     const parsedMin = Number.parseInt(blockMinRulesRaw, 10);
     if (!Number.isInteger(parsedMin) || parsedMin < 1) {
@@ -347,18 +362,35 @@ if (cmd === "proxy") {
     blockMinRules = parsedMin;
   }
 
-  runStdioProxy(upstreamCmd, upstreamArgs, {
-    redactPii: !flags.includes("--no-pii"),
-    redactOutboundPii: flags.includes("--redact-outbound-pii"),
-    blockInjections: flags.includes("--block-injections"),
-    blockMinRules,
-    taintUntrusted: !flags.includes("--no-taint"),
-    injectionThreshold,
+  let policy = null;
+  if (policyPath) {
+    try {
+      policy = loadPolicyFile(policyPath);
+    } catch (err) {
+      console.error(`Error: failed to load policy "${policyPath}": ${err?.message || err}`);
+      process.exit(2);
+    }
+  }
+
+  const proxyOpts = {
+    policy,
     auditLog,
     allowEmailDomains: allowDomainRaw
       ? allowDomainRaw.split(",").map((s) => s.trim().toLowerCase()).filter(Boolean)
-      : [],
-  });
+      : undefined,
+    redactPii: flags.includes("--no-pii") ? false : undefined,
+    redactOutboundPii: flags.includes("--redact-outbound-pii") ? true : undefined,
+    blockInjections: flags.includes("--block-injections") ? true : undefined,
+    blockMinRules,
+    taintUntrusted: flags.includes("--no-taint")
+      ? false
+      : flags.includes("--taint-untrusted")
+        ? true
+        : undefined,
+    injectionThreshold,
+  };
+
+  runStdioProxy(upstreamCmd, upstreamArgs, proxyOpts);
 } else {
   console.error(`Unknown command: ${cmd}`);
   printHelp();

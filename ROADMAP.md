@@ -26,11 +26,13 @@ Internal engineering reviews of `v0.1.0` and early `v0.2.0` established our core
 - [x] **#3 (`P0`, reopened & completed) — Measured prompt-injection tripwire & taint-by-default:** Made `--taint-untrusted` the default proxy stance (`--no-taint` to opt out), required `critical` severity or `--block-min-rules 2` distinct rules before `--block-injections` drops/replaces a frame, tightened `<system>` XML matching to eliminate XML-config false positives, added `AI_READER_DIRECTIVE` & reworded override/persona rules, and verified `0/350` Kafka FPs + `0/8` benign blocks + `20/26` attack recall in CI.
 - [ ] **#4 (`P1`) — npm publish (`@4sails/mcp-guard@0.2.0`) & DX:** Dynamic `--version`, `--flag=value`, `scan -` (stdin), JSONL input, `src/index.d.ts`, cross-OS CI + `npm run check`, `SECURITY.md`/`CONTRIBUTING.md`/`CHANGELOG.md` are all landed on `main`; remaining step is `npm publish --access public`.
 
-### Milestone `v0.3.0` — Auditability, Shared ACL Vectors & Scope-Tied Policy
+### Milestone `v0.3.0` — Policy Engine, Auditability & Shared ACL Vectors
 - [x] **#6 (`P1`) — Structured JSONL `--audit-log` + `mcp-guard audit` summary CLI:** Append-only `{ ts, dir, method, tool, action, rules, secretHashes, latencyMs }` (SHA-256 hashes only, never raw secrets) with `tools/call` request→response correlation plus a terminal/JSON summary command.
-- [ ] **#5 (`P1`, narrowed) — Scope-tied argument constraints & shared ACL test vectors:** Enforce 4sails-aligned argument limits (`jira_*: { project_key }`, `slack_*: { channel_id }`, `github_*: { repo }`) via declarative `mcp-guard.json` and maintain a shared JSON ACL test-vector suite verifying identical decisions between `mcp-guard` and `4sails`.
+- [x] **#5 (`P1`) — Declarative `mcp-guard.json` policy engine, tool/arg ACLs & shared ACL vectors:** Pre-execution `tools.allow` / `tools.deny` globs, fail-closed `tools.argConstraints` (`jira_*: { project_key }`, `slack_*: { channel_id }`, `github_*: { repo }`), per-tool secret exceptions (`tools.allowSecretFields`), bounded `16 MiB` frame buffer cap, CI-safe `scan` preview omission, and portable `test/fixtures/acl-vectors.json`.
 
-### Later / Demand-Driven (Parked Until Users Request)
-- [ ] **#8 (`P2`) — Streamable HTTP / SSE MCP transport proxy:** `mcp-guard http-proxy --upstream https://... --port 8787` using zero-dep `node:http` & `fetch` (revisit when remote HTTP MCP transport is finalized).
-- [ ] **#7 (`P2`, parked) — `mcp-guard wrap` / `unwrap` auto-installer:** Automatically wrap/revert stdio servers in `.cursor/mcp.json` or Claude Desktop config with `--dry-run` and `.bak` backup.
-- [ ] **#9 (`P2`, parked) — Session-scoped deterministic pseudonymization:** Replace PII with consistent session tokens (`[EMAIL_1]`, `[EMAIL_2]`) while keeping secrets strictly one-way redacted.
+### Next Up (`v0.4.0`) — Remote MCP Transport
+- [ ] **#8 (`P1`) — Streamable HTTP / SSE MCP transport proxy:** `mcp-guard http-proxy --upstream https://... --port 8787` using zero-dep `node:http` & `fetch` — prioritized next as official GitHub, Linear, Atlassian, and Stripe MCP servers move to remote Streamable HTTP.
+
+### Later / Demand-Driven (`v1.0.0`, P2)
+- [ ] **#7 (`P2`) — `mcp-guard wrap` / `unwrap` auto-installer:** Automatically wrap/revert stdio servers in `.cursor/mcp.json` or Claude Desktop config with `--dry-run` and `.bak` backup.
+- [ ] **#9 (`P2`) — Session-scoped deterministic pseudonymization & broader PII:** Replace PII with consistent session tokens (`[EMAIL_1]`, `[EMAIL_2]`) while keeping secrets strictly one-way redacted, plus opt-in financial/ID PII detectors.

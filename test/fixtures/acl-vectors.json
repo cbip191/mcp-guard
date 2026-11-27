@@ -1,0 +1,92 @@
+{
+  "schemaVersion": "1.0",
+  "description": "Portable fail-closed citation-scope ACL test vectors shared between @4sails/mcp-guard and 4sails.",
+  "vectors": [
+    {
+      "id": "acl-01-multi-client-isolation",
+      "callerScopes": ["jira:project:HBR", "slack:channel:C04HARBOR"],
+      "payload": {
+        "facts": [
+          {
+            "id": "harbor_status",
+            "statement": "Checkout rebuild ready for QA.",
+            "citations": [
+              { "scopeId": "slack:channel:C04HARBOR", "itemRef": "msg-1" },
+              { "scopeId": "slack:channel:C01EXEC", "itemRef": "msg-2" }
+            ]
+          },
+          {
+            "id": "pinecrest_margin",
+            "statement": "Confidential Client B margin.",
+            "citations": [{ "scopeId": "jira:project:PIN", "itemRef": "PIN-10" }]
+          },
+          {
+            "id": "uncited_claim",
+            "statement": "Fact with zero citations must fail closed.",
+            "citations": []
+          }
+        ]
+      },
+      "expected": {
+        "blocked": false,
+        "allowedFactIds": ["harbor_status"],
+        "droppedFactIds": ["pinecrest_margin", "uncited_claim"],
+        "strippedCitations": 2,
+        "remainingCitationsByFact": {
+          "harbor_status": ["slack:channel:C04HARBOR"]
+        }
+      }
+    },
+    {
+      "id": "acl-02-empty-caller-scopes-drops-all",
+      "callerScopes": [],
+      "payload": {
+        "facts": [
+          {
+            "id": "f1",
+            "statement": "Should be dropped.",
+            "citations": [{ "scopeId": "jira:project:HBR" }]
+          }
+        ]
+      },
+      "expected": {
+        "blocked": false,
+        "allowedFactIds": [],
+        "droppedFactIds": ["f1"],
+        "strippedCitations": 1,
+        "remainingCitationsByFact": {}
+      }
+    },
+    {
+      "id": "acl-03-unrecognized-payload-shape-fails-closed",
+      "callerScopes": ["jira:project:HBR"],
+      "payload": {
+        "jsonrpc": "2.0",
+        "id": 99,
+        "result": { "issue": "PIN-108", "summary": "Raw upstream payload without facts array" }
+      },
+      "expected": {
+        "blocked": true,
+        "sanitizedNull": true,
+        "safe": false,
+        "reason": "unsupported_payload_shape_for_acl"
+      }
+    },
+    {
+      "id": "acl-04-missing-citations-property-fails-closed",
+      "callerScopes": ["jira:project:HBR"],
+      "payload": {
+        "facts": [
+          { "id": "malformed_fact", "statement": "No citations field at all" }
+        ]
+      },
+      "expected": {
+        "blocked": false,
+        "allowedFactIds": [],
+        "droppedFactIds": ["malformed_fact"],
+        "strippedCitations": 0,
+        "remainingCitationsByFact": {}
+      }
+    }
+  ]
+}

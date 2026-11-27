@@ -15,13 +15,20 @@ import {
   encodeFrame,
   inspectFrame,
   runStdioProxy,
+  DEFAULT_MAX_FRAME_BYTES,
   buildAuditEntry,
   createAuditLogger,
   summarizeAuditLog,
   formatAuditSummary,
+  matchGlob,
+  validatePolicy,
+  loadPolicyFile,
+  evaluateToolCallPolicy,
+  getOutboundSecretSkipPaths,
   guardMcpResponse,
   type AuditSummary,
   type GuardMcpResult,
+  type GuardPolicy,
   type Severity,
 } from "@4sails/mcp-guard";
 
@@ -81,6 +88,18 @@ const auditEntry = buildAuditEntry({
 const auditSummary: AuditSummary = summarizeAuditLog(`${JSON.stringify(auditEntry)}\n`);
 const formattedAudit: string = formatAuditSummary(auditSummary, { limit: 5 });
 
+const policy: GuardPolicy = validatePolicy({
+  tools: {
+    allow: ["jira_*"],
+    deny: ["*_delete*"],
+    argConstraints: { "jira_*": { project_key: ["HBR"] } },
+    allowSecretFields: { vault_write_secret: ["value"] },
+  },
+});
+const globOk: boolean = matchGlob("jira_*", "jira_get_issue");
+const decision = evaluateToolCallPolicy("jira_get_issue", { project_key: "HBR" }, policy);
+const skipPaths: Set<string> = getOutboundSecretSkipPaths("vault_write_secret", policy);
+
 void [
   entropy,
   hash,
@@ -88,6 +107,12 @@ void [
   auditSummary,
   formattedAudit,
   createAuditLogger,
+  policy,
+  globOk,
+  decision,
+  skipPaths,
+  loadPolicyFile,
+  DEFAULT_MAX_FRAME_BYTES,
   textRes,
   payloadRes,
   aclRes,

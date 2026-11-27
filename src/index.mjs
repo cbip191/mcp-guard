@@ -19,6 +19,7 @@ import {
   createFrameParser,
   encodeFrame,
   inspectFrame,
+  DEFAULT_MAX_FRAME_BYTES,
 } from "./proxy.mjs";
 import {
   buildAuditEntry,
@@ -26,6 +27,13 @@ import {
   summarizeAuditLog,
   formatAuditSummary,
 } from "./audit.mjs";
+import {
+  matchGlob,
+  validatePolicy,
+  loadPolicyFile,
+  evaluateToolCallPolicy,
+  getOutboundSecretSkipPaths,
+} from "./policy.mjs";
 
 export {
   redactText,
@@ -44,10 +52,16 @@ export {
   createFrameParser,
   encodeFrame,
   inspectFrame,
+  DEFAULT_MAX_FRAME_BYTES,
   buildAuditEntry,
   createAuditLogger,
   summarizeAuditLog,
   formatAuditSummary,
+  matchGlob,
+  validatePolicy,
+  loadPolicyFile,
+  evaluateToolCallPolicy,
+  getOutboundSecretSkipPaths,
 };
 
 /**

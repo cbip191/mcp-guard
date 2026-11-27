@@ -33,6 +33,7 @@ export interface RedactTextOptions {
 
 export interface RedactPayloadOptions extends RedactTextOptions {
   skipEnvelope?: boolean;
+  skipPaths?: Iterable<string> | null;
 }
 
 export interface RedactTextResult {
@@ -105,6 +106,63 @@ export interface FrameParser {
   end(): void;
 }
 
+export interface FrameParserError {
+  code: "FRAME_TOO_LARGE" | "HEADER_TOO_LARGE";
+  bytes: number;
+  maxBytes: number;
+}
+
+export interface FrameParserOptions {
+  maxFrameBytes?: number;
+  onError?: ((err: FrameParserError) => void) | null;
+}
+
+export interface PolicyToolsConfig {
+  allow?: string[];
+  deny?: string[];
+  argConstraints?: Record<
+    string,
+    Record<string, string | number | boolean | Array<string | number | boolean>>
+  >;
+  allowSecretFields?: Record<string, string[]>;
+}
+
+export interface PolicyRedactionConfig {
+  redactPii?: boolean;
+  redactOutboundPii?: boolean;
+  allowEmailDomains?: string[];
+}
+
+export interface PolicyInjectionConfig {
+  taintUntrusted?: boolean;
+  blockInjections?: boolean;
+  blockMinRules?: number;
+  threshold?: Severity;
+}
+
+export interface GuardPolicy {
+  tools: {
+    allow: string[];
+    deny: string[];
+    argConstraints: Record<string, Record<string, Array<string | number | boolean>>>;
+    allowSecretFields: Record<string, string[]>;
+  };
+  redaction: PolicyRedactionConfig;
+  injection: PolicyInjectionConfig;
+}
+
+export interface RawGuardPolicy {
+  tools?: PolicyToolsConfig;
+  redaction?: PolicyRedactionConfig;
+  injection?: PolicyInjectionConfig;
+}
+
+export interface PolicyDecision {
+  allowed: boolean;
+  ruleId: "POLICY_TOOL_DENIED" | "POLICY_TOOL_NOT_ALLOWED" | "POLICY_ARG_CONSTRAINT" | null;
+  reason: string | null;
+}
+
 export interface InspectFrameOptions {
   redactPii?: boolean;
   redactOutboundPii?: boolean;
@@ -113,14 +171,17 @@ export interface InspectFrameOptions {
   blockMinRules?: number;
   taintUntrusted?: boolean;
   injectionThreshold?: Severity;
+  policy?: GuardPolicy | null;
 }
 
 export interface InspectFrameResult {
-  action: "ignore" | "forward" | "replace" | "drop" | "drop_and_reply" | "tainted";
+  action: "ignore" | "forward" | "replace" | "drop" | "drop_and_reply" | "tainted" | "policy_denied";
   output: string | null;
   repliesToUpstream: string[];
+  repliesToClient: string[];
   findings: RedactionFinding[];
   injectionAlerts: InjectionAlert[];
+  policyRules: string[];
   taintedPaths: string[];
   unparseable: boolean;
   id: string | number | null;
@@ -149,6 +210,7 @@ export interface BuildAuditEntryInput {
   action?: AuditAction;
   findings?: RedactionFinding[];
   injectionAlerts?: InjectionAlert[];
+  extraRules?: string[];
   latencyMs?: number;
 }
 
@@ -186,6 +248,7 @@ export interface AuditSummary {
 export interface StdioProxyOptions extends InspectFrameOptions {
   auditLog?: string | null;
   onAuditEntry?: ((entry: AuditEntry) => void) | null;
+  maxFrameBytes?: number;
   input?: Readable;
   output?: Writable;
   stderr?: Writable;
@@ -253,7 +316,12 @@ export declare function taintUntrustedPayload<T = unknown>(
   options?: DetectInjectionOptions
 ): TaintResult<T>;
 
-export declare function createFrameParser(onFrame: (frame: ParsedFrame) => void): FrameParser;
+export declare const DEFAULT_MAX_FRAME_BYTES: number;
+
+export declare function createFrameParser(
+  onFrame: (frame: ParsedFrame) => void,
+  options?: FrameParserOptions
+): FrameParser;
 export declare function encodeFrame(payloadStr: string, framing?: FrameFraming): string;
 export declare function inspectFrame(
   raw: string,
@@ -265,6 +333,19 @@ export declare function runStdioProxy(
   args?: string[],
   options?: StdioProxyOptions
 ): ChildProcess | null;
+
+export declare function matchGlob(pattern: string, value: string): boolean;
+export declare function validatePolicy(raw: RawGuardPolicy): GuardPolicy;
+export declare function loadPolicyFile(filePath: string): GuardPolicy;
+export declare function evaluateToolCallPolicy(
+  toolName: string,
+  toolArgs: Record<string, unknown>,
+  policy: GuardPolicy | null | undefined
+): PolicyDecision;
+export declare function getOutboundSecretSkipPaths(
+  toolName: string,
+  policy: GuardPolicy | null | undefined
+): Set<string>;
 
 export declare function buildAuditEntry(input: BuildAuditEntryInput): AuditEntry;
 export declare function createAuditLogger(
