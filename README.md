@@ -113,13 +113,29 @@ claude mcp add guarded-github -- \
 - Normalizes NFKC homoglyphs and strips zero-width/bidi/invisible characters before matching; detects instruction overrides, text addressed directly to an AI reader (`Note to AI assistants...`), role/turn hijacks, credential file uploads, shell exfiltration, LLM control tokens (`<|im_start|>`), attributed/pseudo XML control tags, and Unicode Tag smuggling (`U+E0000..U+E007F`).
 - **Taint by default (`taintUntrusted: true`):** wraps only flagged string fields in `[MCP_GUARD_UNTRUSTED_DATA ...]` markers (escaping spoofed closing tags) while leaving clean sibling items intact. Opt out with `--no-taint` or escalate with `--block-injections [--block-min-rules 2] [--injection-threshold <low|medium|high|critical>]`.
 
-### 3. Fail-Closed Citation-Scope ACL Gate (`src/acl.mjs`, `src/index.mjs`)
-- `filterFactsForPrincipal(facts, callerScopes)` intersects fact citations against the caller's permitted Jira/Slack/Git scopes — dropping uncited or unauthorized facts and stripping private citations.
-- When `callerScopes` is passed to `guardMcpResponse(payload, { callerScopes })`, payloads without a recognized `.facts` array **fail closed** (`sanitized: null`, `report.acl.blocked: true`, `report.safe: false`).
-- *Scope note:* `mcp-guard proxy` does not enforce tool/argument ACLs yet — scope-tied argument constraints are tracked on [ROADMAP.md](./ROADMAP.md).
+### 3. Declarative `mcp-guard.json` Policy Engine & Citation-Scope ACLs (`src/policy.mjs`, `src/acl.mjs`)
+- **Pre-execution tool & argument firewall (`--policy mcp-guard.json`):** Blocks disallowed tools and out-of-scope arguments with a JSON-RPC `-32002` error **before** they reach the upstream MCP server (and logs the block to `--audit-log`). Supports `tools.allow`, `tools.deny` (deny always wins), `tools.argConstraints` (exact values, globs, nested dot-paths, fail-closed on missing args), and per-tool secret exceptions (`tools.allowSecretFields`) for tools that legitimately accept credentials.
+
+```json
+{
+  "tools": {
+    "allow": ["jira_*", "github_*", "vault_write_secret"],
+    "deny": ["*_delete*", "*_destroy*", "github_merge_*"],
+    "argConstraints": {
+      "jira_*": { "project_key": ["HBR"] },
+      "github_*": { "repo": ["agency/harbor-*"] }
+    },
+    "allowSecretFields": {
+      "vault_write_secret": ["value"]
+    }
+  }
+}
+```
+
+- **Fail-closed citation-scope ACL gate (`filterFactsForPrincipal`, `guardMcpResponse`):** Intersects fact citations against the caller's permitted Jira/Slack/Git scopes — dropping uncited or unauthorized facts, stripping private citations, and failing closed (`sanitized: null`, `report.acl.blocked: true`, `report.safe: false`) on unrecognized payload shapes. Verified against portable shared vectors in [`test/fixtures/acl-vectors.json`](./test/fixtures/acl-vectors.json).
 
 ### 4. Bidirectional Stdio Proxy & JSONL Audit Log (`src/proxy.mjs`, `src/audit.mjs`)
-- Supports both **NDJSON** and **`Content-Length`** framing (recalculating UTF-8 byte lengths after redaction) plus JSON-RPC batch arrays.
+- Supports both **NDJSON** and **`Content-Length`** framing (recalculating UTF-8 byte lengths after redaction) with a bounded `16 MiB` default `maxFrameBytes` DoS cap plus JSON-RPC batch arrays.
 - Never fails open on unparseable frames; drains child `stdout` completely before exit; handles `ENOENT`, `EPIPE`, `SIGINT`, and `SIGTERM` cleanly.
 - Pass `--audit-log <path.jsonl>` to record append-only structured events (`{ ts, dir, method, tool, action, rules, secretHashes, latencyMs }`) with one-way SHA-256 secret fingerprints (never raw secrets) and `tools/call` request→response tool correlation, then inspect them with `mcp-guard audit <path.jsonl>`.
 
@@ -131,14 +147,14 @@ claude mcp add guarded-github -- \
 # Built-in multi-client agency demo
 node ./bin/mcp-guard.mjs demo
 
-# Wrap an upstream stdio MCP server with structured JSONL audit logging
-node ./bin/mcp-guard.mjs proxy --allow-domain youragency.com --audit-log ./mcp-audit.jsonl -- \
+# Wrap an upstream stdio MCP server with policy enforcement + structured JSONL audit logging
+node ./bin/mcp-guard.mjs proxy --policy ./mcp-guard.json --allow-domain youragency.com --audit-log ./mcp-audit.jsonl -- \
   npx -y @modelcontextprotocol/server-github
 
 # Summarize an audit log in the terminal (or --json for SIEM/CI)
 node ./bin/mcp-guard.mjs audit ./mcp-audit.jsonl
 
-# Scan a JSON or JSONL export in CI (exits 0=clean, 1=findings, 2=error)
+# Scan a JSON or JSONL export in CI (omits secret previews by default; pass --show-previews locally)
 node ./bin/mcp-guard.mjs scan ./jira-export.json \
   --scopes=jira:project:HBR,slack:channel:C04HARBORDEV \
   --allow-domain=youragency.com \

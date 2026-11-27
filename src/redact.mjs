@@ -270,6 +270,7 @@ function normalizeOptions(options = {}) {
     allowEmailDomains = [],
     detectHighEntropy = true,
     skipEnvelope = true,
+    skipPaths = null,
   } = options;
 
   let allowedDomains = null;
@@ -282,6 +283,12 @@ function normalizeOptions(options = {}) {
     if (allowedDomains.size === 0) allowedDomains = null;
   }
 
+  let skipPathSet = null;
+  if (skipPaths) {
+    skipPathSet = skipPaths instanceof Set ? skipPaths : new Set(skipPaths);
+    if (skipPathSet.size === 0) skipPathSet = null;
+  }
+
   let rules;
   if (redactPii) {
     rules = detectHighEntropy ? ALL_RULES : ALL_RULES_NO_ENTROPY;
@@ -289,7 +296,7 @@ function normalizeOptions(options = {}) {
     rules = detectHighEntropy ? SECRET_RULES : SECRET_RULES_NO_ENTROPY;
   }
 
-  return { rules, allowedDomains, detectHighEntropy, skipEnvelope };
+  return { rules, allowedDomains, detectHighEntropy, skipEnvelope, skipPathSet };
 }
 
 function redactStringInternal(text, normalized, contextKey = null) {
@@ -416,6 +423,10 @@ export function redactPayload(value, options = {}) {
     value.jsonrpc === "2.0";
 
   function walk(node, path, depth, contextKey) {
+    if (normalized.skipPathSet && path && normalized.skipPathSet.has(path)) {
+      return node;
+    }
+
     if (typeof node === "string") {
       const res = redactStringInternal(node, normalized, contextKey);
       for (let i = 0; i < res.findings.length; i++) {

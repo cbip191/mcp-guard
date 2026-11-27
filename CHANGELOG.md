@@ -7,7 +7,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ## [Unreleased]
 
 ### Added
+- **Declarative `mcp-guard.json` policy engine (`src/policy.mjs`, `src/proxy.mjs`, `bin/mcp-guard.mjs`):** Added `--policy <mcp-guard.json>` (or `MCP_GUARD_POLICY`) with strict fail-closed schema validation, linear-time `matchGlob`, `tools.allow` / `tools.deny` globs, fail-closed `tools.argConstraints` (supporting exact values, globs, and nested dot paths), per-tool secret field allowlists (`tools.allowSecretFields` via `redactPayload` `skipPaths`), JSON-RPC `-32002` pre-execution blocking, and portable shared ACL vectors (`test/fixtures/acl-vectors.json`).
 - **Structured JSONL audit logging (`src/audit.mjs`, `src/proxy.mjs`, `bin/mcp-guard.mjs`):** Added `--audit-log <path.jsonl>` emitting append-only `{ ts, dir, method, tool, action, rules, secretHashes, latencyMs }` records (owner-only `0600` permissions on POSIX, one-way `sha256:` secret fingerprints via `hashSecret()`, never raw secrets/previews/snippets, and automatic `tools/call` request→response tool correlation) plus `mcp-guard audit <logfile|-> [--json]` terminal/JSON summary CLI.
+
+### Security
+- **Bounded frame parser (`src/proxy.mjs`):** Added `DEFAULT_MAX_FRAME_BYTES` (`16 MiB`, configurable via `maxFrameBytes`) to `createFrameParser` so runaway NDJSON lines without newlines or oversized `Content-Length` headers are discarded in O(1) memory instead of causing unbounded buffering.
+- **CI-safe `scan` output (`bin/mcp-guard.mjs`):** `mcp-guard scan` now omits secret `preview` substrings by default (emitting `sha256:` hashes only) so public CI logs never leak partial credentials; pass `--show-previews` for local debugging.
 
 ## [0.2.0] - 2026-11-26
 

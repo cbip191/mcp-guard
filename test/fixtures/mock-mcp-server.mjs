@@ -48,6 +48,26 @@ if (mode === "sleep") {
         process.stdout.write(encodeFrame(JSON.stringify(reply), framing));
         return;
       }
+      if (toolName === "jira_delete_issue") {
+        process.stderr.write("[mock-mcp] DANGER: jira_delete_issue executed!\n");
+        const reply = { jsonrpc: "2.0", id: msg.id, result: { deleted: true } };
+        process.stdout.write(encodeFrame(JSON.stringify(reply), framing));
+        return;
+      }
+      if (toolName === "vault_write_secret") {
+        const val = msg.params?.arguments?.value ?? "";
+        const note = msg.params?.arguments?.note ?? "";
+        const reply = {
+          jsonrpc: "2.0",
+          id: msg.id,
+          result: {
+            storedRawSecret: val.startsWith("sk_live_"),
+            noteWasRedacted: note.includes("[REDACTED:"),
+          },
+        };
+        process.stdout.write(encodeFrame(JSON.stringify(reply), framing));
+        return;
+      }
       if (toolName === "jira_get_issue") {
         const reply = {
           jsonrpc: "2.0",

@@ -66,6 +66,19 @@ test("CLI scan supports stdin ('-'), --flag=value syntax, and --taint-untrusted"
   assert.equal(report.secretsAndPiiRedacted, 1);
   assert.equal(report.injectionAlerts.length, 1);
   assert.deepEqual(report.taintedPaths, ["note"]);
+  // Secret previews are omitted by default in CI scan output; SHA-256 hash is emitted instead
+  assert.equal(report.findings[0].preview, undefined);
+  assert.match(report.findings[0].hash, /^sha256:[0-9a-f]{16}$/);
+  assert.ok(!res.stdout.includes("51N9"));
+
+  // Opt-in --show-previews exposes preview for local debugging
+  const previewRes = await runCli(
+    ["scan", "-", "--allow-domain=agency.dev", "--show-previews"],
+    payload
+  );
+  assert.equal(previewRes.code, 1);
+  const previewReport = JSON.parse(previewRes.stdout);
+  assert.equal(typeof previewReport.findings[0].preview, "string");
 });
 
 test("CLI scan auto-detects JSONL input from stdin and exits 0 when clean or 1 when unsafe", async () => {

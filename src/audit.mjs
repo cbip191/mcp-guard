@@ -17,6 +17,7 @@ export function buildAuditEntry({
   action = "allow",
   findings = [],
   injectionAlerts = [],
+  extraRules = [],
   latencyMs = 0,
 }) {
   const ruleSet = new Set();
@@ -32,6 +33,11 @@ export function buildAuditEntry({
   for (let i = 0; i < injectionAlerts.length; i++) {
     const a = injectionAlerts[i];
     if (a?.ruleId) ruleSet.add(a.ruleId);
+  }
+  for (let i = 0; i < extraRules.length; i++) {
+    if (typeof extraRules[i] === "string" && extraRules[i].length > 0) {
+      ruleSet.add(extraRules[i]);
+    }
   }
 
   return {
