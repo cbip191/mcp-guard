@@ -156,6 +156,11 @@ node ./bin/mcp-guard.mjs proxy --policy ./mcp-guard.json --allow-domain youragen
 node ./bin/mcp-guard.mjs http-proxy --upstream https://mcp.example.com/mcp --port 8787 \
   --policy ./mcp-guard.json --allow-domain youragency.com --audit-log ./mcp-audit.jsonl
 
+# Auto-wrap stdio servers inside Cursor / Claude Desktop / Claude Code mcp.json (dry-run preview first!)
+node ./bin/mcp-guard.mjs wrap ~/.cursor/mcp.json --dry-run --local --allow-domain youragency.com
+node ./bin/mcp-guard.mjs wrap ~/.cursor/mcp.json --apply --local --allow-domain youragency.com
+node ./bin/mcp-guard.mjs unwrap ~/.cursor/mcp.json --apply
+
 # Summarize an audit log in the terminal (or --json for SIEM/CI)
 node ./bin/mcp-guard.mjs audit ./mcp-audit.jsonl
 
