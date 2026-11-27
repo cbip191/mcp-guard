@@ -28,6 +28,11 @@ import {
   createSseParser,
   encodeSseEvent,
   startHttpProxy,
+  isWrappedServer,
+  wrapMcpConfig,
+  unwrapMcpConfig,
+  formatJsonDiff,
+  applyMcpConfigTransform,
   guardMcpResponse,
   type AuditSummary,
   type GuardMcpResult,
@@ -112,6 +117,11 @@ sseParser.push("data: {}\n\n");
 sseParser.end();
 const startFn: (opts: { upstream: string }) => Promise<HttpProxyHandle> = startHttpProxy;
 
+const wrappedCfg = wrapMcpConfig({ mcpServers: { gh: { command: "npx", args: ["-y", "srv"] } } });
+const unwrappedCfg = unwrapMcpConfig(wrappedCfg.config);
+const wrappedCheck: boolean = isWrappedServer({ command: "npx", args: ["-y", "@4sails/mcp-guard", "proxy", "--", "srv"] });
+const diffText: string = formatJsonDiff("a\n", "b\n");
+
 void [
   entropy,
   hash,
@@ -126,6 +136,11 @@ void [
   loadPolicyFile,
   DEFAULT_MAX_FRAME_BYTES,
   startFn,
+  wrappedCfg,
+  unwrappedCfg,
+  wrappedCheck,
+  diffText,
+  applyMcpConfigTransform,
   textRes,
   payloadRes,
   aclRes,

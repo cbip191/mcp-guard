@@ -39,6 +39,13 @@ import {
   encodeSseEvent,
   startHttpProxy,
 } from "./http-proxy.mjs";
+import {
+  isWrappedServer,
+  wrapMcpConfig,
+  unwrapMcpConfig,
+  formatJsonDiff,
+  applyMcpConfigTransform,
+} from "./wrap.mjs";
 
 export {
   redactText,
@@ -70,6 +77,11 @@ export {
   createSseParser,
   encodeSseEvent,
   startHttpProxy,
+  isWrappedServer,
+  wrapMcpConfig,
+  unwrapMcpConfig,
+  formatJsonDiff,
+  applyMcpConfigTransform,
 };
 
 /**

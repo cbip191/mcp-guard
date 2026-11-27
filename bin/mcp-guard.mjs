@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import {
   guardMcpResponse,
   runStdioProxy,
@@ -7,6 +8,7 @@ import {
   summarizeAuditLog,
   formatAuditSummary,
   loadPolicyFile,
+  applyMcpConfigTransform,
   SEVERITY_RANK,
 } from "../src/index.mjs";
 
@@ -58,6 +60,7 @@ const VALUE_FLAGS = new Set([
   "--upstream",
   "--port",
   "--host",
+  "--server",
 ]);
 
 function printHelp() {
@@ -84,6 +87,14 @@ Usage:
                        [--taint-untrusted | --no-taint] [--block-injections] [--block-min-rules <n>]
                        [--injection-threshold <low|medium|high|critical>] [--no-pii] [--redact-outbound-pii]
       Start a local Streamable HTTP / SSE MCP proxy in front of any remote MCP server.
+
+  mcp-guard wrap <mcp.json> [--dry-run | --apply] [--local] [--server name1,name2] [--policy <path>]
+                 [--allow-domain agency.dev] [--audit-log <path.jsonl>] [--block-injections] [--no-taint]
+      Safely wrap stdio servers in Cursor, Claude Desktop, or Claude Code mcp.json (dry-run by default;
+      --apply writes changes and creates a .bak backup). Use --local to point to this local CLI binary.
+
+  mcp-guard unwrap <mcp.json> [--dry-run | --apply] [--server name1,name2]
+      Cleanly revert wrapped mcp-guard servers back to their original command/args (creates .bak with --apply).
 
   mcp-guard audit <logfile.jsonl|-> [--json]
       Summarize a JSONL audit log (top triggered rules, MCP tools, blocked/redacted counts, latency).
@@ -324,6 +335,68 @@ if (cmd === "scan") {
   const result = guardMcpResponse(parsed.data, guardOpts);
   console.log(JSON.stringify(sanitizeReportForCli(result.report, showPreviews), null, 2));
   process.exit(result.report.safe ? 0 : 1);
+}
+
+if (cmd === "wrap" || cmd === "unwrap") {
+  const wrapArgs = args.slice(1);
+  const positionals = extractPositionalArgs(wrapArgs);
+  const configPath = positionals[0];
+
+  if (!configPath) {
+    console.error(`Error: specify an mcp.json path (e.g. mcp-guard ${cmd} ~/.cursor/mcp.json --dry-run)`);
+    process.exit(2);
+  }
+
+  const apply = wrapArgs.includes("--apply") && !wrapArgs.includes("--dry-run");
+  const serverRaw = getFlagValue(wrapArgs, "--server");
+  const servers = serverRaw
+    ? serverRaw.split(",").map((s) => s.trim()).filter(Boolean)
+    : null;
+
+  const transformOpts = { apply, servers };
+  if (cmd === "wrap") {
+    const proxyFlags = [];
+    for (const flag of ["--policy", "--allow-domain", "--audit-log", "--injection-threshold", "--block-min-rules"]) {
+      const val = getFlagValue(wrapArgs, flag);
+      if (val !== null) proxyFlags.push(flag, val);
+    }
+    for (const boolFlag of ["--block-injections", "--no-taint", "--no-pii", "--redact-outbound-pii"]) {
+      if (wrapArgs.includes(boolFlag)) proxyFlags.push(boolFlag);
+    }
+    transformOpts.proxyFlags = proxyFlags;
+
+    if (wrapArgs.includes("--local")) {
+      transformOpts.wrapperCommand = "node";
+      transformOpts.wrapperArgs = [fileURLToPath(import.meta.url)];
+    }
+  }
+
+  try {
+    const res = applyMcpConfigTransform(configPath, cmd, transformOpts);
+    if (res.diff) {
+      process.stdout.write(res.diff);
+    }
+    if (cmd === "wrap") {
+      console.log(
+        `Summary: wrapped=${res.wrapped.length} already_wrapped=${res.alreadyWrapped.length} skipped=${res.skipped.length}`
+      );
+    } else {
+      console.log(
+        `Summary: unwrapped=${res.unwrapped.length} not_wrapped=${res.notWrapped.length} skipped=${res.skipped.length}`
+      );
+    }
+    if (res.applied) {
+      console.log(`Updated ${configPath} (backup saved to ${res.backupPath})`);
+    } else if (res.changed) {
+      console.log("Dry run only — re-run with --apply to write changes (creates .bak backup).");
+    } else {
+      console.log("No changes needed.");
+    }
+    process.exit(0);
+  } catch (err) {
+    console.error(`Error: ${err?.message || err}`);
+    process.exit(2);
+  }
 }
 
 if (cmd === "audit") {

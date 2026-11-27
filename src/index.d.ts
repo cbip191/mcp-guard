@@ -277,6 +277,58 @@ export interface HttpProxyHandle {
   close(): Promise<void>;
 }
 
+export interface WrapConfigOptions {
+  wrapperCommand?: string;
+  wrapperArgs?: string[];
+  proxyFlags?: string[];
+  servers?: string[] | null;
+}
+
+export interface UnwrapConfigOptions {
+  servers?: string[] | null;
+}
+
+export interface WrapSkippedServer {
+  name: string;
+  reason: string;
+}
+
+export interface WrapConfigResult {
+  config: Record<string, unknown>;
+  serversKey: "mcpServers" | "servers";
+  wrapped: string[];
+  alreadyWrapped: string[];
+  skipped: WrapSkippedServer[];
+  changed: boolean;
+}
+
+export interface UnwrapConfigResult {
+  config: Record<string, unknown>;
+  serversKey: "mcpServers" | "servers";
+  unwrapped: string[];
+  notWrapped: string[];
+  skipped: WrapSkippedServer[];
+  changed: boolean;
+}
+
+export interface ApplyWrapOptions extends WrapConfigOptions {
+  apply?: boolean;
+}
+
+export interface ApplyWrapResult {
+  config: Record<string, unknown>;
+  serversKey: "mcpServers" | "servers";
+  wrapped?: string[];
+  alreadyWrapped?: string[];
+  unwrapped?: string[];
+  notWrapped?: string[];
+  skipped: WrapSkippedServer[];
+  changed: boolean;
+  applied: boolean;
+  backupPath: string | null;
+  diff: string;
+}
+
 export interface StdioProxyOptions extends InspectFrameOptions {
   auditLog?: string | null;
   onAuditEntry?: ((entry: AuditEntry) => void) | null;
@@ -396,6 +448,26 @@ export declare function createSseParser(
 ): SseParser;
 export declare function encodeSseEvent(event: Partial<SseEvent>): string;
 export declare function startHttpProxy(options: HttpProxyOptions): Promise<HttpProxyHandle>;
+
+export declare function isWrappedServer(entry: unknown): boolean;
+export declare function wrapMcpConfig(
+  config: Record<string, unknown>,
+  options?: WrapConfigOptions
+): WrapConfigResult;
+export declare function unwrapMcpConfig(
+  config: Record<string, unknown>,
+  options?: UnwrapConfigOptions
+): UnwrapConfigResult;
+export declare function formatJsonDiff(
+  beforeText: string,
+  afterText: string,
+  label?: string
+): string;
+export declare function applyMcpConfigTransform(
+  filePath: string,
+  mode: "wrap" | "unwrap",
+  options?: ApplyWrapOptions
+): ApplyWrapResult;
 
 export declare function guardMcpResponse<T = unknown>(
   payload: T,

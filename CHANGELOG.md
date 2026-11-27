@@ -7,6 +7,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ## [Unreleased]
 
 ### Added
+- **`mcp-guard wrap` / `unwrap` auto-installer (`src/wrap.mjs`, `bin/mcp-guard.mjs`):** Added idempotent `wrapMcpConfig`, `unwrapMcpConfig`, `isWrappedServer`, `formatJsonDiff`, and `applyMcpConfigTransform` supporting Cursor, Claude Desktop, Claude Code (`.mcp.json`), and VS Code (`servers`), defaulting to `--dry-run` diff preview, creating `.bak` backups on `--apply`, and supporting `--local` and `--server` filtering.
 - **Streamable HTTP / SSE MCP transport proxy (`src/http-proxy.mjs`, `bin/mcp-guard.mjs`):** Added `mcp-guard http-proxy --upstream https://... --port 8787` (`startHttpProxy`, `createSseParser`, `encodeSseEvent`) built with zero-dep `node:http` and `fetch`, binding to `127.0.0.1` by default, supporting JSON `POST`, Streamable HTTP & legacy `GET` SSE streaming, `DELETE` session termination, `/_mcp-guard/health`, `413` body-size enforcement, and reusing the full `mcp-guard.json` policy, redaction, taint/blocking, and JSONL `--audit-log` core.
 
 ## [0.3.0] - 2026-11-27

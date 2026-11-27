@@ -34,5 +34,5 @@ Internal engineering reviews of `v0.1.0` and early `v0.2.0` established our core
 - [x] **#8 (`P1`) — Streamable HTTP / SSE MCP transport proxy:** `mcp-guard http-proxy --upstream https://... --port 8787` built with zero-dep `node:http` & `fetch`, reusing the full policy, redaction, SSE taint/blocking, and JSONL audit core.
 
 ### Later / Demand-Driven (`v1.0.0`, P2)
-- [ ] **#7 (`P2`) — `mcp-guard wrap` / `unwrap` auto-installer:** Automatically wrap/revert stdio servers in `.cursor/mcp.json` or Claude Desktop config with `--dry-run` and `.bak` backup.
+- [x] **#7 (`P2`) — `mcp-guard wrap` / `unwrap` auto-installer:** Idempotently wrap/revert stdio servers in `.cursor/mcp.json`, Claude Desktop, Claude Code, or VS Code config with `--dry-run` diff preview, `--local` support, and `.bak` backup.
 - [ ] **#9 (`P2`) — Session-scoped deterministic pseudonymization & broader PII:** Replace PII with consistent session tokens (`[EMAIL_1]`, `[EMAIL_2]`) while keeping secrets strictly one-way redacted, plus opt-in financial/ID PII detectors.
