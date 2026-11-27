@@ -118,9 +118,10 @@ claude mcp add guarded-github -- \
 - When `callerScopes` is passed to `guardMcpResponse(payload, { callerScopes })`, payloads without a recognized `.facts` array **fail closed** (`sanitized: null`, `report.acl.blocked: true`, `report.safe: false`).
 - *Scope note:* `mcp-guard proxy` does not enforce tool/argument ACLs yet — scope-tied argument constraints are tracked on [ROADMAP.md](./ROADMAP.md).
 
-### 4. Bidirectional Stdio Proxy (`src/proxy.mjs`)
+### 4. Bidirectional Stdio Proxy & JSONL Audit Log (`src/proxy.mjs`, `src/audit.mjs`)
 - Supports both **NDJSON** and **`Content-Length`** framing (recalculating UTF-8 byte lengths after redaction) plus JSON-RPC batch arrays.
 - Never fails open on unparseable frames; drains child `stdout` completely before exit; handles `ENOENT`, `EPIPE`, `SIGINT`, and `SIGTERM` cleanly.
+- Pass `--audit-log <path.jsonl>` to record append-only structured events (`{ ts, dir, method, tool, action, rules, secretHashes, latencyMs }`) with one-way SHA-256 secret fingerprints (never raw secrets) and `tools/call` request→response tool correlation, then inspect them with `mcp-guard audit <path.jsonl>`.
 
 ---
 
@@ -129,6 +130,13 @@ claude mcp add guarded-github -- \
 ```bash
 # Built-in multi-client agency demo
 node ./bin/mcp-guard.mjs demo
+
+# Wrap an upstream stdio MCP server with structured JSONL audit logging
+node ./bin/mcp-guard.mjs proxy --allow-domain youragency.com --audit-log ./mcp-audit.jsonl -- \
+  npx -y @modelcontextprotocol/server-github
+
+# Summarize an audit log in the terminal (or --json for SIEM/CI)
+node ./bin/mcp-guard.mjs audit ./mcp-audit.jsonl
 
 # Scan a JSON or JSONL export in CI (exits 0=clean, 1=findings, 2=error)
 node ./bin/mcp-guard.mjs scan ./jira-export.json \

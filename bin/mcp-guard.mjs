@@ -1,6 +1,12 @@
 #!/usr/bin/env node
 import { readFileSync } from "node:fs";
-import { guardMcpResponse, runStdioProxy, SEVERITY_RANK } from "../src/index.mjs";
+import {
+  guardMcpResponse,
+  runStdioProxy,
+  summarizeAuditLog,
+  formatAuditSummary,
+  SEVERITY_RANK,
+} from "../src/index.mjs";
 
 const PKG = JSON.parse(
   readFileSync(new URL("../package.json", import.meta.url), "utf8")
@@ -45,6 +51,7 @@ const VALUE_FLAGS = new Set([
   "--allow-domain",
   "--injection-threshold",
   "--block-min-rules",
+  "--audit-log",
 ]);
 
 function printHelp() {
@@ -60,9 +67,12 @@ Usage:
 
   mcp-guard proxy [--taint-untrusted | --no-taint] [--block-injections] [--block-min-rules <n>]
                   [--injection-threshold <low|medium|high|critical>] [--no-pii] [--redact-outbound-pii]
-                  [--allow-domain agency.dev] -- <upstream-mcp-command> [args...]
+                  [--allow-domain agency.dev] [--audit-log <path.jsonl>] -- <upstream-mcp-command> [args...]
       Wrap any stdio MCP server: always scrubs outbound secrets (opt-in PII via --redact-outbound-pii),
       scrubs inbound secrets/PII, and quarantines flagged fields by default (--no-taint to disable).
+
+  mcp-guard audit <logfile.jsonl|-> [--json]
+      Summarize a JSONL audit log (top triggered rules, MCP tools, blocked/redacted counts, latency).
 
 Options:
   -v, --version    Print version and exit
@@ -293,6 +303,27 @@ if (cmd === "scan") {
   process.exit(result.report.safe ? 0 : 1);
 }
 
+if (cmd === "audit") {
+  const auditArgs = args.slice(1);
+  const positionals = extractPositionalArgs(auditArgs);
+  const logPath = positionals[0];
+
+  if (!logPath) {
+    console.error("Error: specify a JSONL audit log file path or '-' for stdin (e.g. mcp-guard audit ./audit.jsonl)");
+    process.exit(2);
+  }
+
+  const raw = readInputSource(logPath);
+  const summary = summarizeAuditLog(raw);
+
+  if (auditArgs.includes("--json")) {
+    console.log(JSON.stringify(summary, null, 2));
+  } else {
+    process.stdout.write(formatAuditSummary(summary));
+  }
+  process.exit(0);
+}
+
 if (cmd === "proxy") {
   const sep = args.indexOf("--");
   if (sep === -1 || sep + 1 >= args.length) {
@@ -303,6 +334,7 @@ if (cmd === "proxy") {
   const upstreamCmd = args[sep + 1];
   const upstreamArgs = args.slice(sep + 2);
   const allowDomainRaw = getFlagValue(flags, "--allow-domain");
+  const auditLog = getFlagValue(flags, "--audit-log");
   const injectionThreshold = parseInjectionThreshold(flags);
   const blockMinRulesRaw = getFlagValue(flags, "--block-min-rules");
   let blockMinRules = 2;
@@ -322,6 +354,7 @@ if (cmd === "proxy") {
     blockMinRules,
     taintUntrusted: !flags.includes("--no-taint"),
     injectionThreshold,
+    auditLog,
     allowEmailDomains: allowDomainRaw
       ? allowDomainRaw.split(",").map((s) => s.trim().toLowerCase()).filter(Boolean)
       : [],

@@ -2,6 +2,7 @@
  * Deterministic secret & PII redactor for Jira, Slack, Git, and MCP tool payloads.
  * Runs synchronously with zero external dependencies before any text hits an LLM context.
  */
+import { createHash } from "node:crypto";
 
 const JSON_RPC_ENVELOPE_KEYS = new Set(["jsonrpc", "id", "method"]);
 const SCHEMA_METADATA_KEYS = new Set(["$schema", "$id", "$ref"]);
@@ -75,6 +76,15 @@ function isHighEntropySecretValue(val) {
   if (/[0-9]/.test(val)) classes++;
 
   return classes >= 2 && entropy >= 3.6;
+}
+
+/**
+ * Computes a one-way truncated SHA-256 fingerprint for audit correlation
+ * without ever storing or logging raw secrets.
+ */
+export function hashSecret(value) {
+  const digest = createHash("sha256").update(String(value)).digest("hex").slice(0, 16);
+  return `sha256:${digest}`;
 }
 
 function makePreview(secret) {
@@ -298,6 +308,7 @@ function redactStringInternal(text, normalized, contextKey = null) {
         ruleId: "GEMINI_API_KEY",
         severity: "critical",
         preview: makePreview(output),
+        hash: hashSecret(output),
       });
       return { text: "[REDACTED:GEMINI_API_KEY]", findings };
     }
@@ -310,6 +321,7 @@ function redactStringInternal(text, normalized, contextKey = null) {
         ruleId: "MISTRAL_API_KEY",
         severity: "critical",
         preview: makePreview(output),
+        hash: hashSecret(output),
       });
       return { text: "[REDACTED:MISTRAL_API_KEY]", findings };
     }
@@ -339,6 +351,7 @@ function redactStringInternal(text, normalized, contextKey = null) {
         ruleId: rule.id,
         severity: rule.severity,
         preview: makePreview(secretVal),
+        hash: hashSecret(secretVal),
       });
       return `${prefix}[REDACTED:${rule.id}]`;
     });
@@ -355,6 +368,7 @@ function redactStringInternal(text, normalized, contextKey = null) {
         ruleId: "AWS_SECRET_ACCESS_KEY",
         severity: "critical",
         preview: makePreview(output),
+        hash: hashSecret(output),
       });
       output = "[REDACTED:AWS_SECRET_ACCESS_KEY]";
     } else if (
@@ -366,6 +380,7 @@ function redactStringInternal(text, normalized, contextKey = null) {
         ruleId: "HIGH_ENTROPY_SECRET",
         severity: "high",
         preview: makePreview(output),
+        hash: hashSecret(output),
       });
       output = "[REDACTED:HIGH_ENTROPY_SECRET]";
     }
