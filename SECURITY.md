@@ -33,3 +33,11 @@ We aim to acknowledge reports within **72 hours** and provide an initial severit
 ## Disclosure Policy
 
 Once a fix is verified and released, we will publish the advisory and credit the reporter (unless anonymity is requested).
+
+## Supply-Chain & Provenance Verification
+
+Releases are built and published from GitHub Actions via npm OIDC Trusted Publishing with Sigstore provenance attestations (`.github/workflows/release.yml`). Consumers can verify published tarballs with:
+
+```bash
+npm audit signatures
+```

@@ -1,0 +1,60 @@
+name: Release (npm OIDC Provenance)
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Run checks and npm pack --dry-run without publishing"
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    name: Verify & publish to npm with provenance
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+
+      - name: Verify git tag matches package.json version
+        if: github.event_name == 'push'
+        run: |
+          PKG_VERSION=$(node -p "JSON.parse(require('node:fs').readFileSync('package.json','utf8')).version")
+          TAG_NAME="${GITHUB_REF_NAME}"
+          if [ "$TAG_NAME" != "v${PKG_VERSION}" ]; then
+            echo "Error: git tag '${TAG_NAME}' does not match package.json version 'v${PKG_VERSION}'."
+            exit 1
+          fi
+          echo "Verified tag ${TAG_NAME} matches package.json (${PKG_VERSION})."
+
+      - name: Run static checks, full test suite, and demo
+        run: |
+          npm run check
+          npm test
+          npm run demo
+
+      - name: Dry-run tarball verification
+        if: github.event_name == 'workflow_dispatch' && inputs.dry_run
+        run: npm pack --dry-run
+
+      - name: Publish to npm with Sigstore provenance (OIDC Trusted Publishing)
+        if: github.event_name == 'push' || !inputs.dry_run
+        run: npm publish --provenance --access public

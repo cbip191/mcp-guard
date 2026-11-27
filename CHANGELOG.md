@@ -6,6 +6,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Added
+- **Automated npm OIDC provenance release workflow (`.github/workflows/release.yml`):** Tag-triggered (`v*.*.*`) GitHub Actions workflow verifying `tag === v<package.json.version>`, running `npm run check && npm test && npm run demo`, and publishing with `npm publish --provenance --access public` via npm OIDC Trusted Publishing (zero long-lived npm secrets), documented in `CONTRIBUTING.md` and `SECURITY.md`.
+
 ## [0.4.1] - 2026-11-27
 
 ### Documentation
