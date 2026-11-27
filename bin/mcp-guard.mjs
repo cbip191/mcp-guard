@@ -84,22 +84,23 @@ Usage:
 
   mcp-guard proxy [--policy <mcp-guard.json>] [--taint-untrusted | --no-taint] [--block-injections]
                   [--block-min-rules <n>] [--injection-threshold <low|medium|high|critical>] [--no-pii]
-                  [--pseudonymize-pii] [--redact-outbound-pii] [--allow-domain agency.dev]
-                  [--audit-log <path.jsonl>] -- <upstream-mcp-command> [args...]
+                  [--pseudonymize-pii] [--rehydrate-outbound-pii] [--redact-outbound-pii]
+                  [--allow-domain agency.dev] [--audit-log <path.jsonl>] -- <upstream-mcp-command> [args...]
       Wrap any stdio MCP server: enforces mcp-guard.json tool/arg policies before execution, scrubs outbound
       secrets (opt-in PII via --redact-outbound-pii), scrubs inbound secrets/PII (or deterministically
-      pseudonymizes PII per session with --pseudonymize-pii), and taints flagged fields.
+      pseudonymizes PII per session with --pseudonymize-pii; opt-in outbound re-hydration via
+      --rehydrate-outbound-pii), and taints flagged fields.
 
   mcp-guard http-proxy --upstream <https://...> [--port 8787] [--host 127.0.0.1]
                        [--policy <mcp-guard.json>] [--audit-log <path.jsonl>] [--allow-domain agency.dev]
                        [--taint-untrusted | --no-taint] [--block-injections] [--block-min-rules <n>]
                        [--injection-threshold <low|medium|high|critical>] [--no-pii] [--pseudonymize-pii]
-                       [--redact-outbound-pii]
+                       [--rehydrate-outbound-pii] [--redact-outbound-pii]
       Start a local Streamable HTTP / SSE MCP proxy in front of any remote MCP server.
 
   mcp-guard wrap <mcp.json> [--dry-run | --apply] [--local] [--server name1,name2] [--policy <path>]
                  [--allow-domain agency.dev] [--audit-log <path.jsonl>] [--pseudonymize-pii]
-                 [--block-injections] [--no-taint]
+                 [--rehydrate-outbound-pii] [--block-injections] [--no-taint]
       Safely wrap stdio servers in Cursor, Claude Desktop, or Claude Code mcp.json (dry-run by default;
       --apply writes changes and creates a .bak backup). Use --local to point to this local CLI binary.
 
@@ -384,6 +385,7 @@ if (cmd === "wrap" || cmd === "unwrap") {
       "--no-taint",
       "--no-pii",
       "--pseudonymize-pii",
+      "--rehydrate-outbound-pii",
       "--redact-outbound-pii",
     ]) {
       if (wrapArgs.includes(boolFlag)) proxyFlags.push(boolFlag);
@@ -568,6 +570,7 @@ function parseProxyFlags(flags) {
     redactPii: flags.includes("--no-pii") ? false : undefined,
     redactOutboundPii: flags.includes("--redact-outbound-pii") ? true : undefined,
     pseudonymizePii: flags.includes("--pseudonymize-pii") ? true : undefined,
+    rehydrateOutboundPii: flags.includes("--rehydrate-outbound-pii") ? true : undefined,
     blockInjections: flags.includes("--block-injections") ? true : undefined,
     blockMinRules,
     taintUntrusted: flags.includes("--no-taint")

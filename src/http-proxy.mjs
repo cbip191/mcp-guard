@@ -289,8 +289,12 @@ export async function startHttpProxy(options = {}) {
   const onAuditEntry = options.onAuditEntry ?? null;
   const fetchImpl = options.fetchImpl ?? globalThis.fetch;
 
+  const rehydrateOutboundPii =
+    options.rehydrateOutboundPii ?? policy?.redaction?.rehydrateOutboundPii ?? false;
   const pseudonymizePii =
-    options.pseudonymizePii ?? policy?.redaction?.pseudonymizePii ?? false;
+    options.pseudonymizePii ??
+    policy?.redaction?.pseudonymizePii ??
+    Boolean(rehydrateOutboundPii);
   const pseudonymizer =
     options.pseudonymizer ?? (pseudonymizePii ? createPiiPseudonymizer() : null);
 
@@ -299,6 +303,7 @@ export async function startHttpProxy(options = {}) {
     redactOutboundPii: options.redactOutboundPii ?? policy?.redaction?.redactOutboundPii ?? false,
     pseudonymizePii,
     pseudonymizer,
+    rehydrateOutboundPii,
     allowEmailDomains:
       options.allowEmailDomains && options.allowEmailDomains.length > 0
         ? options.allowEmailDomains

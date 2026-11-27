@@ -8,7 +8,7 @@ import {
   wrapUntrustedField,
 } from "./injection.mjs";
 import { buildAuditEntry, createAuditLogger } from "./audit.mjs";
-import { evaluateToolCallPolicy, getOutboundSecretSkipPaths } from "./policy.mjs";
+import { evaluateToolCallPolicy, getOutboundSecretSkipPaths, matchGlob } from "./policy.mjs";
 
 const MAX_HEADER_BYTES = 8192;
 export const DEFAULT_MAX_FRAME_BYTES = 16 * 1024 * 1024; // 16 MiB DoS cap
@@ -276,12 +276,31 @@ function shouldBlockAlerts(alerts, blockMinRules) {
   return distinctRules >= blockMinRules;
 }
 
+function shouldRehydrateOutbound(parsed, rehydrateOutboundPii) {
+  if (!rehydrateOutboundPii) return false;
+  if (rehydrateOutboundPii === true) return true;
+  if (Array.isArray(rehydrateOutboundPii)) {
+    if (
+      !parsed ||
+      typeof parsed !== "object" ||
+      parsed.method !== "tools/call" ||
+      typeof parsed.params?.name !== "string"
+    ) {
+      return false;
+    }
+    const toolName = parsed.params.name;
+    return rehydrateOutboundPii.some((pattern) => matchGlob(pattern, toolName));
+  }
+  return false;
+}
+
 function inspectSingleJsonRpcMessage(parsed, direction, options) {
   const {
     redactPii = true,
     redactOutboundPii = false,
     pseudonymizePii = false,
     pseudonymizer = null,
+    rehydrateOutboundPii = false,
     allowEmailDomains = [],
     disabledRules = null,
     customRules = null,
@@ -327,7 +346,21 @@ function inspectSingleJsonRpcMessage(parsed, direction, options) {
     }
   }
 
-  const shouldRedactPii = direction === "agent->mcp" ? redactOutboundPii : redactPii;
+  let working = parsed;
+  let rehydratedCount = 0;
+  if (
+    direction === "agent->mcp" &&
+    pseudonymizer &&
+    typeof pseudonymizer.rehydratePayload === "function" &&
+    shouldRehydrateOutbound(parsed, rehydrateOutboundPii)
+  ) {
+    const rehydrated = pseudonymizer.rehydratePayload(parsed, { skipEnvelope: true });
+    working = rehydrated.payload;
+    rehydratedCount = rehydrated.rehydratedCount;
+  }
+
+  const shouldRedactPii =
+    direction === "agent->mcp" ? (rehydratedCount > 0 ? false : redactOutboundPii) : redactPii;
   const skipPaths =
     direction === "agent->mcp" &&
     policy &&
@@ -338,7 +371,7 @@ function inspectSingleJsonRpcMessage(parsed, direction, options) {
       ? getOutboundSecretSkipPaths(parsed.params.name, policy)
       : null;
 
-  const { sanitized, findings } = redactPayload(parsed, {
+  const { sanitized, findings } = redactPayload(working, {
     redactPii: shouldRedactPii,
     pseudonymizePii,
     pseudonymizer,
@@ -753,8 +786,12 @@ export function runStdioProxy(command, args = [], options = {}) {
   const redactPii = options.redactPii ?? policy?.redaction?.redactPii ?? true;
   const redactOutboundPii =
     options.redactOutboundPii ?? policy?.redaction?.redactOutboundPii ?? false;
+  const rehydrateOutboundPii =
+    options.rehydrateOutboundPii ?? policy?.redaction?.rehydrateOutboundPii ?? false;
   const pseudonymizePii =
-    options.pseudonymizePii ?? policy?.redaction?.pseudonymizePii ?? false;
+    options.pseudonymizePii ??
+    policy?.redaction?.pseudonymizePii ??
+    Boolean(rehydrateOutboundPii);
   const pseudonymizer =
     options.pseudonymizer ?? (pseudonymizePii ? createPiiPseudonymizer() : null);
   const allowEmailDomains =
@@ -788,6 +825,7 @@ export function runStdioProxy(command, args = [], options = {}) {
     redactOutboundPii,
     pseudonymizePii,
     pseudonymizer,
+    rehydrateOutboundPii,
     disabledRules,
     customRules,
     allowPatterns,

@@ -79,6 +79,18 @@
           "default": false,
           "description": "Replace PII with session-consistent tokens ([EMAIL_1], [PHONE_1], etc.) while keeping secrets one-way redacted."
         },
+        "rehydrateOutboundPii": {
+          "oneOf": [
+            { "type": "boolean" },
+            {
+              "type": "array",
+              "minItems": 1,
+              "items": { "type": "string", "minLength": 1 }
+            }
+          ],
+          "default": false,
+          "description": "Opt-in outbound re-hydration of session PII tokens ([EMAIL_1]) back to upstream tools (boolean or per-tool glob allowlist). Secrets are never re-hydrated."
+        },
         "allowEmailDomains": {
           "type": "array",
           "items": { "type": "string", "minLength": 1 },
