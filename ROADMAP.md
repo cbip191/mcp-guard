@@ -30,9 +30,15 @@ Internal engineering reviews of `v0.1.0` and early `v0.2.0` established our core
 - [x] **#6 (`P1`) — Structured JSONL `--audit-log` + `mcp-guard audit` summary CLI:** Append-only `{ ts, dir, method, tool, action, rules, secretHashes, latencyMs }` (SHA-256 hashes only, never raw secrets) with `tools/call` request→response correlation plus a terminal/JSON summary command.
 - [x] **#5 (`P1`) — Declarative `mcp-guard.json` policy engine, tool/arg ACLs & shared ACL vectors:** Pre-execution `tools.allow` / `tools.deny` globs, fail-closed `tools.argConstraints` (`jira_*: { project_key }`, `slack_*: { channel_id }`, `github_*: { repo }`), per-tool secret exceptions (`tools.allowSecretFields`), bounded `16 MiB` frame buffer cap, CI-safe `scan` preview omission, and portable `test/fixtures/acl-vectors.json`.
 
-### Milestone `v0.4.0` — Remote MCP Transport
+### Milestone `v0.4.0` — Remote MCP Transport, Auto-Wrap & PII Pseudonymization
 - [x] **#8 (`P1`) — Streamable HTTP / SSE MCP transport proxy:** `mcp-guard http-proxy --upstream https://... --port 8787` built with zero-dep `node:http` & `fetch`, reusing the full policy, redaction, SSE taint/blocking, and JSONL audit core.
-
-### Later / Demand-Driven (`v1.0.0`, P2)
 - [x] **#7 (`P2`) — `mcp-guard wrap` / `unwrap` auto-installer:** Idempotently wrap/revert stdio servers in `.cursor/mcp.json`, Claude Desktop, Claude Code, or VS Code config with `--dry-run` diff preview, `--local` support, and `.bak` backup.
 - [x] **#9 (`P2`) — Session-scoped deterministic pseudonymization & broader PII:** Replace PII with consistent session tokens (`[EMAIL_1]`, `[EMAIL_2]`, `[PHONE_1]`, `[CARD_1]`, `[SSN_1]`, `[IBAN_1]`) via `--pseudonymize-pii` / `createPiiPseudonymizer()` while keeping secrets strictly one-way redacted, plus Luhn credit card, US SSN, and ISO 13616 MOD-97 IBAN detectors verified with 0 FPs on the 350-item Kafka corpus.
+
+### Milestone `v1.0.0` — Production Readiness, Escape Hatches & Supply-Chain Trust
+- [ ] **#24 (`P1`) — Custom redaction rules, rule suppression & allowlist patterns in `mcp-guard.json`:** `redaction.disabledRules`, ReDoS-checked `redaction.customRules`, and `redaction.allowPatterns`.
+- [ ] **#25 (`P1`) — Real-world MCP server compatibility harness:** Dogfood `proxy`, `http-proxy`, and `wrap` against official GitHub/Filesystem stdio servers, Streamable HTTP OAuth/`Mcp-Session-Id`/SSE reconnects, and Windows `npx.cmd`.
+- [ ] **#26 (`P1`) — Automated npm Trusted Publishing (`--provenance`) workflow:** Tag-triggered GitHub Actions OIDC release workflow with Sigstore provenance badge on npmjs.com.
+- [ ] **#27 (`P1`) — `mcp-guard init`, JSON Schema (`mcp-guard.schema.json`) & `policy test` CLI:** Starter policy templates, editor autocomplete/validation, and offline policy dry-run debugger.
+- [ ] **#28 (`P2`) — Opt-in outbound PII re-hydration for `--pseudonymize-pii` workflows:** Re-hydrate `[EMAIL_1]` back to upstream tools when explicitly enabled while keeping secrets strictly one-way redacted.
+- [ ] **#29 (`P1`) — Public API surface audit, semver freeze & `v1.0.0` readiness:** Freeze stable exports in `src/index.d.ts`, refresh benchmarks, and finalize `SECURITY.md` for `1.0.0`.

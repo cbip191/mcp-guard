@@ -1,6 +1,6 @@
 {
   "name": "@4sails/mcp-guard",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "description": "Zero-dependency bidirectional MCP firewall, secret/PII DLP proxy, ACL gate, and prompt-injection quarantine middleware for Claude Code, Cursor, and B2B AI agents.",
   "license": "MIT",
   "type": "module",

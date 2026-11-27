@@ -216,6 +216,16 @@ npm run check && npm test && npm run benchmark
 
 ---
 
+## Threat Model & Non-Goals
+
+`mcp-guard` protects the **MCP tool boundary** (stdio and Streamable HTTP/SSE traffic between your AI client and MCP servers):
+
+- **What it enforces deterministically:** pre-execution tool/argument policy blocks (`mcp-guard.json`), outbound secret redaction, inbound secret/PII redaction or session pseudonymization, fail-closed citation-scope ACLs, bounded frame sizes, and secret-free JSONL audit logging.
+- **What it treats as best-effort early warning:** regex/Unicode prompt-injection detection (`20/26` on our benchmark, `23.1%` documented miss rate). Taint markers (`[MCP_GUARD_UNTRUSTED_DATA ...]`) help steer the model but are not a cryptographic sandbox against every LLM override.
+- **Out of scope:** direct local shell, file-system, or browser tools built into your coding agent (Claude Code, Cursor) that bypass MCP entirely. Pair `mcp-guard` with least-privilege OAuth scopes, OS sandboxing, and client-side tool approvals.
+
+---
+
 ## Contributing & Security
 
 - Please read [CONTRIBUTING.md](./CONTRIBUTING.md) before opening a pull request.
