@@ -2,6 +2,7 @@ import {
   redactPayload,
   redactText,
   shannonEntropy,
+  hashSecret,
   SECRET_RULES,
   PII_RULES,
 } from "./redact.mjs";
@@ -19,11 +20,18 @@ import {
   encodeFrame,
   inspectFrame,
 } from "./proxy.mjs";
+import {
+  buildAuditEntry,
+  createAuditLogger,
+  summarizeAuditLog,
+  formatAuditSummary,
+} from "./audit.mjs";
 
 export {
   redactText,
   redactPayload,
   shannonEntropy,
+  hashSecret,
   SECRET_RULES,
   PII_RULES,
   filterFactsForPrincipal,
@@ -36,6 +44,10 @@ export {
   createFrameParser,
   encodeFrame,
   inspectFrame,
+  buildAuditEntry,
+  createAuditLogger,
+  summarizeAuditLog,
+  formatAuditSummary,
 };
 
 /**

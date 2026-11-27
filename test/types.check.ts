@@ -2,6 +2,7 @@ import {
   redactText,
   redactPayload,
   shannonEntropy,
+  hashSecret,
   SECRET_RULES,
   PII_RULES,
   filterFactsForPrincipal,
@@ -14,7 +15,12 @@ import {
   encodeFrame,
   inspectFrame,
   runStdioProxy,
+  buildAuditEntry,
+  createAuditLogger,
+  summarizeAuditLog,
+  formatAuditSummary,
   guardMcpResponse,
+  type AuditSummary,
   type GuardMcpResult,
   type Severity,
 } from "@4sails/mcp-guard";
@@ -63,8 +69,25 @@ const guarded: GuardMcpResult<{ facts: Array<{ id: string }> }> = guardMcpRespon
   }
 );
 
+const hash: string = hashSecret("secret");
+const auditEntry = buildAuditEntry({
+  dir: "agent->mcp",
+  method: "tools/call",
+  tool: "jira_search",
+  action: "redacted",
+  findings: textRes.findings,
+  latencyMs: 0.12,
+});
+const auditSummary: AuditSummary = summarizeAuditLog(`${JSON.stringify(auditEntry)}\n`);
+const formattedAudit: string = formatAuditSummary(auditSummary, { limit: 5 });
+
 void [
   entropy,
+  hash,
+  auditEntry,
+  auditSummary,
+  formattedAudit,
+  createAuditLogger,
   textRes,
   payloadRes,
   aclRes,

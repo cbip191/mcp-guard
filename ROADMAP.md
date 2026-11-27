@@ -27,7 +27,7 @@ Internal engineering reviews of `v0.1.0` and early `v0.2.0` established our core
 - [ ] **#4 (`P1`) — npm publish (`@4sails/mcp-guard@0.2.0`) & DX:** Dynamic `--version`, `--flag=value`, `scan -` (stdin), JSONL input, `src/index.d.ts`, cross-OS CI + `npm run check`, `SECURITY.md`/`CONTRIBUTING.md`/`CHANGELOG.md` are all landed on `main`; remaining step is `npm publish --access public`.
 
 ### Milestone `v0.3.0` — Auditability, Shared ACL Vectors & Scope-Tied Policy
-- [ ] **#6 (`P1`) — Structured JSONL `--audit-log` + `mcp-guard audit` summary CLI:** Append-only `{ ts, dir, method, tool, action, rules, secretHashes, latencyMs }` (hashes only, never raw secrets) plus a terminal summary command.
+- [x] **#6 (`P1`) — Structured JSONL `--audit-log` + `mcp-guard audit` summary CLI:** Append-only `{ ts, dir, method, tool, action, rules, secretHashes, latencyMs }` (SHA-256 hashes only, never raw secrets) with `tools/call` request→response correlation plus a terminal/JSON summary command.
 - [ ] **#5 (`P1`, narrowed) — Scope-tied argument constraints & shared ACL test vectors:** Enforce 4sails-aligned argument limits (`jira_*: { project_key }`, `slack_*: { channel_id }`, `github_*: { repo }`) via declarative `mcp-guard.json` and maintain a shared JSON ACL test-vector suite verifying identical decisions between `mcp-guard` and `4sails`.
 
 ### Later / Demand-Driven (Parked Until Users Request)

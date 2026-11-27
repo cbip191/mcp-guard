@@ -1,10 +1,12 @@
 import { spawn } from "node:child_process";
+import { performance } from "node:perf_hooks";
 import { redactPayload, redactText } from "./redact.mjs";
 import {
   detectPromptInjection,
   taintUntrustedPayload,
   wrapUntrustedField,
 } from "./injection.mjs";
+import { buildAuditEntry, createAuditLogger } from "./audit.mjs";
 
 const MAX_HEADER_BYTES = 8192;
 const SIGNAL_EXIT_CODES = {
@@ -324,7 +326,9 @@ export function inspectFrame(raw, direction, options = {}) {
       injectionAlerts: [],
       taintedPaths: [],
       unparseable: false,
+      id: null,
       method: null,
+      tool: null,
     };
   }
 
@@ -356,7 +360,9 @@ export function inspectFrame(raw, direction, options = {}) {
         injectionAlerts,
         taintedPaths: [],
         unparseable: true,
+        id: null,
         method: null,
+        tool: null,
       };
     }
 
@@ -369,7 +375,9 @@ export function inspectFrame(raw, direction, options = {}) {
         injectionAlerts,
         taintedPaths: [""],
         unparseable: true,
+        id: null,
         method: null,
+        tool: null,
       };
     }
 
@@ -381,7 +389,9 @@ export function inspectFrame(raw, direction, options = {}) {
       injectionAlerts,
       taintedPaths: [],
       unparseable: true,
+      id: null,
       method: null,
+      tool: null,
     };
   }
 
@@ -424,11 +434,29 @@ export function inspectFrame(raw, direction, options = {}) {
       injectionAlerts: allAlerts,
       taintedPaths: allTaintedPaths,
       unparseable: false,
+      id: null,
       method: null,
+      tool: null,
     };
   }
 
   const res = inspectSingleJsonRpcMessage(parsed, direction, options);
+  const method =
+    parsed && typeof parsed === "object" && typeof parsed.method === "string"
+      ? parsed.method
+      : null;
+  const tool =
+    method === "tools/call" &&
+    parsed.params &&
+    typeof parsed.params === "object" &&
+    typeof parsed.params.name === "string"
+      ? parsed.params.name
+      : null;
+  const id =
+    parsed && typeof parsed === "object" && parsed.id !== undefined && parsed.id !== null
+      ? parsed.id
+      : null;
+
   return {
     action: res.action,
     output: res.message !== null ? JSON.stringify(res.message) : null,
@@ -437,9 +465,9 @@ export function inspectFrame(raw, direction, options = {}) {
     injectionAlerts: res.injectionAlerts,
     taintedPaths: res.taintedPaths,
     unparseable: false,
-    method: parsed && typeof parsed === "object" && typeof parsed.method === "string"
-      ? parsed.method
-      : null,
+    id,
+    method,
+    tool,
   };
 }
 
@@ -456,12 +484,23 @@ function safeWrite(stream, data) {
   }
 }
 
+function mapAuditAction(res) {
+  if (res.action === "replace" || res.action === "drop_and_reply") return "blocked";
+  if (res.action === "drop") return "dropped";
+  if (res.action === "tainted") return "tainted";
+  if (res.findings.length > 0) return "redacted";
+  return "allow";
+}
+
+const MAX_PENDING_CALLS = 1000;
+
 /**
  * Wraps any stdio MCP server process as a bidirectional JSON-RPC firewall:
- * - Inspects stdin (agent -> MCP) to block outbound secret/PII leaks.
- * - Inspects stdout (MCP -> agent) to scrub secrets/PII and detect/block indirect prompt injections.
+ * - Inspects stdin (agent -> MCP) to block outbound secret leaks (opt-in PII via redactOutboundPii).
+ * - Inspects stdout (MCP -> agent) to scrub secrets/PII and taint/block indirect prompt injections.
  * - Supports both NDJSON and Content-Length framing and never fails open on unparseable frames.
- * - Drains child stdout completely before exiting and forwards SIGINT/SIGTERM cleanly.
+ * - Optionally writes append-only structured JSONL audit logs (never raw secrets).
+ * - Drains child stdout and audit log completely before exiting and forwards SIGINT/SIGTERM cleanly.
  * - Audit telemetry is written strictly to stderr so stdout stays valid MCP JSON-RPC.
  */
 export function runStdioProxy(command, args = [], options = {}) {
@@ -473,6 +512,8 @@ export function runStdioProxy(command, args = [], options = {}) {
     taintUntrusted = true,
     injectionThreshold = "medium",
     allowEmailDomains = [],
+    auditLog = null,
+    onAuditEntry = null,
     input = process.stdin,
     output = process.stdout,
     stderr = process.stderr,
@@ -494,6 +535,17 @@ export function runStdioProxy(command, args = [], options = {}) {
     safeWrite(stderr, `[mcp-guard] ${line}\n`);
   }
 
+  let auditLogger = null;
+  if (auditLog) {
+    try {
+      auditLogger = createAuditLogger(auditLog, {
+        onError: (err) => logAudit(`audit_log_error=${err?.code || err?.message}`),
+      });
+    } catch (err) {
+      logAudit(`audit_log_open_error path=${auditLog} message=${err?.message}`);
+    }
+  }
+
   let child;
   try {
     child = spawn(command, args, {
@@ -503,7 +555,11 @@ export function runStdioProxy(command, args = [], options = {}) {
   } catch (err) {
     const code = err?.code === "ENOENT" ? 127 : err?.code === "EACCES" || err?.code === "EPERM" ? 126 : 1;
     logAudit(`spawn_error command=${command} code=${err?.code || "UNKNOWN"} message=${err?.message}`);
-    exit(code);
+    if (auditLogger) {
+      auditLogger.close().finally(() => exit(code));
+    } else {
+      exit(code);
+    }
     return null;
   }
 
@@ -511,6 +567,23 @@ export function runStdioProxy(command, args = [], options = {}) {
   let stdoutEnded = false;
   let childClosed = false;
   let exitCode = 0;
+  const pendingCalls = new Map();
+
+  function recordAudit(dir, res, method, tool, latencyMs) {
+    if (!auditLogger && !onAuditEntry) return;
+    if (res.action === "ignore") return;
+    const entry = buildAuditEntry({
+      dir,
+      method,
+      tool,
+      action: mapAuditAction(res),
+      findings: res.findings,
+      injectionAlerts: res.injectionAlerts,
+      latencyMs,
+    });
+    if (auditLogger) auditLogger.write(entry);
+    if (onAuditEntry) onAuditEntry(entry);
+  }
 
   function onSignal(signal) {
     if (!child.killed && child.exitCode === null && child.signalCode === null) {
@@ -533,7 +606,11 @@ export function runStdioProxy(command, args = [], options = {}) {
     if (finished) return;
     finished = true;
     cleanupSignals();
-    exit(code);
+    if (auditLogger) {
+      auditLogger.close().finally(() => exit(code));
+    } else {
+      exit(code);
+    }
   }
 
   function maybeFinish() {
@@ -567,11 +644,25 @@ export function runStdioProxy(command, args = [], options = {}) {
 
   // Direction 1: agent -> MCP (stdin -> child.stdin)
   const inboundParser = createFrameParser(({ framing, raw }) => {
+    const t0 = performance.now();
     const res = inspectFrame(raw, "agent->mcp", inspectOpts);
+    const latencyMs = performance.now() - t0;
+
+    if (res.id !== null && res.method !== null) {
+      if (pendingCalls.size >= MAX_PENDING_CALLS) {
+        const oldestKey = pendingCalls.keys().next().value;
+        pendingCalls.delete(oldestKey);
+      }
+      pendingCalls.set(String(res.id), { method: res.method, tool: res.tool });
+    }
+
+    recordAudit("agent->mcp", res, res.method, res.tool, latencyMs);
+
     if (res.findings.length > 0 || res.unparseable) {
       const parts = [
         "dir=agent->mcp",
         res.method ? `method=${res.method}` : null,
+        res.tool ? `tool=${res.tool}` : null,
         res.unparseable ? "unparseable_frame=true" : null,
         `scrubbed=${res.findings.length}`,
       ].filter(Boolean);
@@ -594,12 +685,29 @@ export function runStdioProxy(command, args = [], options = {}) {
 
   // Direction 2: MCP -> agent (child.stdout -> output)
   const outboundParser = createFrameParser(({ framing, raw }) => {
+    const t0 = performance.now();
     const res = inspectFrame(raw, "mcp->agent", inspectOpts);
+    const latencyMs = performance.now() - t0;
+
+    let correlatedMethod = res.method;
+    let correlatedTool = res.tool;
+    if (res.id !== null && correlatedMethod === null) {
+      const key = String(res.id);
+      const pending = pendingCalls.get(key);
+      if (pending) {
+        correlatedMethod = pending.method;
+        correlatedTool = pending.tool;
+        pendingCalls.delete(key);
+      }
+    }
+
+    recordAudit("mcp->agent", res, correlatedMethod, correlatedTool, latencyMs);
 
     if (res.findings.length > 0 || res.injectionAlerts.length > 0 || res.unparseable) {
       const parts = [
         "dir=mcp->agent",
-        res.method ? `method=${res.method}` : null,
+        correlatedMethod ? `method=${correlatedMethod}` : null,
+        correlatedTool ? `tool=${correlatedTool}` : null,
         res.action !== "forward" ? `action=${res.action}` : null,
         res.unparseable ? "unparseable_frame=true" : null,
         `scrubbed=${res.findings.length}`,

@@ -4,6 +4,11 @@ All notable changes to `@4sails/mcp-guard` will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+- **Structured JSONL audit logging (`src/audit.mjs`, `src/proxy.mjs`, `bin/mcp-guard.mjs`):** Added `--audit-log <path.jsonl>` emitting append-only `{ ts, dir, method, tool, action, rules, secretHashes, latencyMs }` records (owner-only `0600` permissions on POSIX, one-way `sha256:` secret fingerprints via `hashSecret()`, never raw secrets/previews/snippets, and automatic `tools/call` request→response tool correlation) plus `mcp-guard audit <logfile|-> [--json]` terminal/JSON summary CLI.
+
 ## [0.2.0] - 2026-11-26
 
 ### Added
