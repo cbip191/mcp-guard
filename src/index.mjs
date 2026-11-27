@@ -5,6 +5,7 @@ import {
   hashSecret,
   isValidLuhn,
   isValidIban,
+  compileSafeRegex,
   SECRET_RULES,
   PII_RULES,
 } from "./redact.mjs";
@@ -60,6 +61,7 @@ export {
   hashSecret,
   isValidLuhn,
   isValidIban,
+  compileSafeRegex,
   createPiiPseudonymizer,
   PII_PSEUDONYM_PREFIX,
   SECRET_RULES,
@@ -107,6 +109,9 @@ export function guardMcpResponse(payload, options = {}) {
     pseudonymizePii = false,
     pseudonymizer = null,
     allowEmailDomains = [],
+    disabledRules = null,
+    customRules = null,
+    allowPatterns = null,
     injectionThreshold = "medium",
     taintUntrusted = false,
   } = options;
@@ -154,6 +159,9 @@ export function guardMcpResponse(payload, options = {}) {
     pseudonymizePii,
     pseudonymizer,
     allowEmailDomains,
+    disabledRules,
+    customRules,
+    allowPatterns,
   });
 
   let sanitized = redacted;

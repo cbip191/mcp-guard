@@ -3,7 +3,75 @@
  * Runs synchronously with zero external dependencies before any text hits an LLM context.
  */
 import { createHash } from "node:crypto";
+import { performance } from "node:perf_hooks";
 import { createPiiPseudonymizer } from "./pseudonymize.mjs";
+
+const ALLOWED_REGEX_FLAGS = new Set(["g", "i", "m", "s", "u"]);
+const NESTED_QUANTIFIER_RE = /\((?:[^()\\]|\\.)*[+*](?:[^()\\]|\\.)*\)[+*]/;
+const REDOS_PROBES = [
+  `${"a".repeat(22)}!`,
+  `${"0".repeat(22)}!`,
+  `${"a-".repeat(12)}!`,
+  `${"ab".repeat(12)}!`,
+];
+const MAX_SAFE_REGEX_LEN = 2048;
+const MAX_SAFE_PROBE_MS = 20;
+
+/**
+ * Compiles a user-supplied regex string with strict syntax, flag, and ReDoS safety checks.
+ * Rejects invalid patterns, unsupported flags, nested unbounded quantifiers, and patterns
+ * exhibiting super-linear backtracking on adversarial probes.
+ */
+export function compileSafeRegex(pattern, flags = "", options = {}) {
+  const { requireGlobal = false, maxProbeMs = MAX_SAFE_PROBE_MS } = options;
+
+  if (typeof pattern !== "string" || pattern.length === 0) {
+    throw new Error("Invalid regex: pattern must be a non-empty string.");
+  }
+  if (pattern.length > MAX_SAFE_REGEX_LEN) {
+    throw new Error(`Invalid regex: pattern exceeds maximum length of ${MAX_SAFE_REGEX_LEN} characters.`);
+  }
+  if (typeof flags !== "string") {
+    throw new Error("Invalid regex: flags must be a string.");
+  }
+
+  const flagSet = new Set();
+  for (const ch of flags) {
+    if (!ALLOWED_REGEX_FLAGS.has(ch)) {
+      throw new Error(`Invalid regex: unsupported flag "${ch}" (allowed: g, i, m, s, u).`);
+    }
+    flagSet.add(ch);
+  }
+  if (requireGlobal) flagSet.add("g");
+  else flagSet.delete("g");
+
+  if (NESTED_QUANTIFIER_RE.test(pattern)) {
+    throw new Error("Unsafe regex rejected: nested unbounded quantifiers risk ReDoS backtracking.");
+  }
+
+  const normalizedFlags = [...flagSet].sort().join("");
+  let compiled;
+  try {
+    compiled = new RegExp(pattern, normalizedFlags);
+  } catch (err) {
+    throw new Error(`Invalid regex syntax: ${err.message}`);
+  }
+
+  // Probe compiled regex on short adversarial inputs to catch overlapping alternations like (a|a)+
+  const probeRe = new RegExp(compiled.source, compiled.flags.replace(/g/g, ""));
+  for (let i = 0; i < REDOS_PROBES.length; i++) {
+    const t0 = performance.now();
+    probeRe.test(REDOS_PROBES[i]);
+    const elapsed = performance.now() - t0;
+    if (elapsed > maxProbeMs) {
+      throw new Error(
+        `Unsafe regex rejected: adversarial ReDoS probe took ${elapsed.toFixed(1)}ms (limit ${maxProbeMs}ms).`
+      );
+    }
+  }
+
+  return compiled;
+}
 
 const IBAN_LENGTHS = Object.freeze({
   AL: 28, AD: 24, AT: 20, AZ: 28, BH: 22, BY: 28, BE: 16, BA: 20, BR: 29, BG: 22,
@@ -375,6 +443,54 @@ const SECRET_RULES_NO_ENTROPY = SECRET_RULES.filter((r) => !r.entropy);
 const ALL_RULES = [...SECRET_RULES, ...PII_RULES];
 const ALL_RULES_NO_ENTROPY = [...SECRET_RULES_NO_ENTROPY, ...PII_RULES];
 
+function normalizeCustomRules(customRules) {
+  if (!Array.isArray(customRules) || customRules.length === 0) return [];
+  const out = [];
+  for (let i = 0; i < customRules.length; i++) {
+    const r = customRules[i];
+    if (!r || typeof r !== "object" || typeof r.id !== "string" || !r.id) continue;
+    let compiled;
+    if (r.pattern instanceof RegExp) {
+      compiled = r.pattern.global
+        ? r.pattern
+        : new RegExp(r.pattern.source, `${r.pattern.flags}g`);
+    } else if (typeof r.pattern === "string") {
+      compiled = compileSafeRegex(r.pattern, r.flags ?? "", { requireGlobal: true });
+    } else {
+      continue;
+    }
+    out.push({
+      id: r.id,
+      severity: r.severity || "high",
+      pattern: compiled,
+      pii: false,
+    });
+  }
+  return out;
+}
+
+function normalizeAllowPatterns(allowPatterns) {
+  if (!Array.isArray(allowPatterns) || allowPatterns.length === 0) return null;
+  const out = [];
+  for (let i = 0; i < allowPatterns.length; i++) {
+    const entry = allowPatterns[i];
+    if (entry instanceof RegExp) {
+      out.push(entry.global ? new RegExp(entry.source, entry.flags.replace(/g/g, "")) : entry);
+    } else if (typeof entry === "string" && entry.length > 0) {
+      out.push(compileSafeRegex(entry, "", { requireGlobal: false }));
+    }
+  }
+  return out.length > 0 ? out : null;
+}
+
+function isAllowedValue(val, allowRegexes) {
+  if (!allowRegexes) return false;
+  for (let i = 0; i < allowRegexes.length; i++) {
+    if (allowRegexes[i].test(val)) return true;
+  }
+  return false;
+}
+
 function normalizeOptions(options = {}) {
   const {
     redactPii = true,
@@ -384,6 +500,9 @@ function normalizeOptions(options = {}) {
     detectHighEntropy = true,
     skipEnvelope = true,
     skipPaths = null,
+    disabledRules = null,
+    customRules = null,
+    allowPatterns = null,
   } = options;
 
   let allowedDomains = null;
@@ -402,12 +521,31 @@ function normalizeOptions(options = {}) {
     if (skipPathSet.size === 0) skipPathSet = null;
   }
 
-  let rules;
-  if (redactPii) {
-    rules = detectHighEntropy ? ALL_RULES : ALL_RULES_NO_ENTROPY;
-  } else {
-    rules = detectHighEntropy ? SECRET_RULES : SECRET_RULES_NO_ENTROPY;
+  let disabledSet = null;
+  if (disabledRules) {
+    disabledSet = disabledRules instanceof Set ? disabledRules : new Set(disabledRules);
+    if (disabledSet.size === 0) disabledSet = null;
   }
+
+  let baseRules;
+  if (redactPii) {
+    baseRules = detectHighEntropy ? ALL_RULES : ALL_RULES_NO_ENTROPY;
+  } else {
+    baseRules = detectHighEntropy ? SECRET_RULES : SECRET_RULES_NO_ENTROPY;
+  }
+
+  const compiledCustom = normalizeCustomRules(customRules);
+  let rules = baseRules;
+  if (disabledSet || compiledCustom.length > 0) {
+    rules = disabledSet ? baseRules.filter((r) => !disabledSet.has(r.id)) : [...baseRules];
+    for (let i = 0; i < compiledCustom.length; i++) {
+      if (!disabledSet || !disabledSet.has(compiledCustom[i].id)) {
+        rules.push(compiledCustom[i]);
+      }
+    }
+  }
+
+  const allowRegexes = normalizeAllowPatterns(allowPatterns);
 
   const activePseudonymizer =
     redactPii && pseudonymizer && typeof pseudonymizer.pseudonymize === "function"
@@ -422,6 +560,8 @@ function normalizeOptions(options = {}) {
     detectHighEntropy,
     skipEnvelope,
     skipPathSet,
+    disabledSet,
+    allowRegexes,
     pseudonymizer: activePseudonymizer,
   };
 }
@@ -431,13 +571,18 @@ function redactStringInternal(text, normalized, contextKey = null) {
     return { text, findings: [] };
   }
 
-  const { rules, allowedDomains, detectHighEntropy, pseudonymizer } = normalized;
+  const { rules, allowedDomains, detectHighEntropy, disabledSet, allowRegexes, pseudonymizer } =
+    normalized;
   const findings = [];
   let output = text;
 
   // Specific structured-field attribution before generic pattern matching (e.g. { gemini_api_key: "AIza..." })
-  if (contextKey) {
-    if (GEMINI_KEY_NAME_RE.test(contextKey) && /^AIza[0-9A-Za-z_-]{35}$/.test(output)) {
+  if (contextKey && !isAllowedValue(output, allowRegexes)) {
+    if (
+      (!disabledSet || !disabledSet.has("GEMINI_API_KEY")) &&
+      GEMINI_KEY_NAME_RE.test(contextKey) &&
+      /^AIza[0-9A-Za-z_-]{35}$/.test(output)
+    ) {
       findings.push({
         ruleId: "GEMINI_API_KEY",
         severity: "critical",
@@ -447,6 +592,7 @@ function redactStringInternal(text, normalized, contextKey = null) {
       return { text: "[REDACTED:GEMINI_API_KEY]", findings };
     }
     if (
+      (!disabledSet || !disabledSet.has("MISTRAL_API_KEY")) &&
       MISTRAL_KEY_NAME_RE.test(contextKey) &&
       /^[A-Za-z0-9]{32}$/.test(output) &&
       isHighEntropySecretValue(output)
@@ -481,6 +627,10 @@ function redactStringInternal(text, normalized, contextKey = null) {
         return match;
       }
 
+      if (isAllowedValue(secretVal, allowRegexes)) {
+        return match;
+      }
+
       const replacement =
         rule.pii && pseudonymizer
           ? pseudonymizer.pseudonymize(rule.id, secretVal)
@@ -501,8 +651,9 @@ function redactStringInternal(text, normalized, contextKey = null) {
   }
 
   // Context-aware structured field checks (e.g. { "aws_secret_access_key": "<40-char>" })
-  if (contextKey && !output.includes("[REDACTED:")) {
+  if (contextKey && !output.includes("[REDACTED:") && !isAllowedValue(output, allowRegexes)) {
     if (
+      (!disabledSet || !disabledSet.has("AWS_SECRET_ACCESS_KEY")) &&
       AWS_SECRET_KEY_NAME_RE.test(contextKey) &&
       /^[A-Za-z0-9/+=]{40}$/.test(output) &&
       shannonEntropy(output) >= 3.3
@@ -516,6 +667,7 @@ function redactStringInternal(text, normalized, contextKey = null) {
       output = "[REDACTED:AWS_SECRET_ACCESS_KEY]";
     } else if (
       detectHighEntropy &&
+      (!disabledSet || !disabledSet.has("HIGH_ENTROPY_SECRET")) &&
       isSensitiveKeyName(contextKey) &&
       isHighEntropySecretValue(output)
     ) {

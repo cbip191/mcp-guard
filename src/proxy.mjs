@@ -283,6 +283,9 @@ function inspectSingleJsonRpcMessage(parsed, direction, options) {
     pseudonymizePii = false,
     pseudonymizer = null,
     allowEmailDomains = [],
+    disabledRules = null,
+    customRules = null,
+    allowPatterns = null,
     blockInjections = false,
     blockMinRules = 2,
     taintUntrusted = true,
@@ -340,6 +343,9 @@ function inspectSingleJsonRpcMessage(parsed, direction, options) {
     pseudonymizePii,
     pseudonymizer,
     allowEmailDomains,
+    disabledRules,
+    customRules,
+    allowPatterns,
     skipPaths,
   });
 
@@ -471,6 +477,9 @@ export function inspectFrame(raw, direction, options = {}) {
     pseudonymizePii = false,
     pseudonymizer = null,
     allowEmailDomains = [],
+    disabledRules = null,
+    customRules = null,
+    allowPatterns = null,
     blockInjections = false,
     blockMinRules = 2,
     taintUntrusted = true,
@@ -505,6 +514,9 @@ export function inspectFrame(raw, direction, options = {}) {
       pseudonymizePii,
       pseudonymizer,
       allowEmailDomains,
+      disabledRules,
+      customRules,
+      allowPatterns,
     });
     const injectionAlerts =
       direction === "mcp->agent"
@@ -706,6 +718,9 @@ export function runStdioProxy(command, args = [], options = {}) {
     options.allowEmailDomains && options.allowEmailDomains.length > 0
       ? options.allowEmailDomains
       : (policy?.redaction?.allowEmailDomains ?? []);
+  const disabledRules = options.disabledRules ?? policy?.redaction?.disabledRules ?? null;
+  const customRules = options.customRules ?? policy?.redaction?.customRules ?? null;
+  const allowPatterns = options.allowPatterns ?? policy?.redaction?.allowPatterns ?? null;
   const blockInjections =
     options.blockInjections ?? policy?.injection?.blockInjections ?? false;
   const blockMinRules = options.blockMinRules ?? policy?.injection?.blockMinRules ?? 2;
@@ -730,6 +745,9 @@ export function runStdioProxy(command, args = [], options = {}) {
     redactOutboundPii,
     pseudonymizePii,
     pseudonymizer,
+    disabledRules,
+    customRules,
+    allowPatterns,
     blockInjections,
     blockMinRules,
     taintUntrusted,

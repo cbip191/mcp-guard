@@ -43,12 +43,35 @@ export interface PiiPseudonymizer {
   reset(): void;
 }
 
+export interface CustomRedactionRuleInput {
+  id: string;
+  pattern: string | RegExp;
+  flags?: string;
+  severity?: Severity;
+}
+
+export interface CompiledCustomRedactionRule {
+  id: string;
+  pattern: RegExp;
+  source: string;
+  flags: string;
+  severity: Severity;
+}
+
+export interface CompileSafeRegexOptions {
+  requireGlobal?: boolean;
+  maxProbeMs?: number;
+}
+
 export interface RedactTextOptions {
   redactPii?: boolean;
   pseudonymizePii?: boolean;
   pseudonymizer?: PiiPseudonymizer | null;
   allowEmailDomains?: string[];
   detectHighEntropy?: boolean;
+  disabledRules?: Iterable<string> | null;
+  customRules?: CustomRedactionRuleInput[] | null;
+  allowPatterns?: Array<string | RegExp> | null;
 }
 
 export interface RedactPayloadOptions extends RedactTextOptions {
@@ -152,6 +175,24 @@ export interface PolicyRedactionConfig {
   redactOutboundPii?: boolean;
   pseudonymizePii?: boolean;
   allowEmailDomains?: string[];
+  disabledRules?: string[];
+  customRules?: CompiledCustomRedactionRule[];
+  allowPatterns?: RegExp[];
+}
+
+export interface RawPolicyRedactionConfig {
+  redactPii?: boolean;
+  redactOutboundPii?: boolean;
+  pseudonymizePii?: boolean;
+  allowEmailDomains?: string[];
+  disabledRules?: string[];
+  customRules?: Array<{
+    id: string;
+    pattern: string;
+    flags?: string;
+    severity?: Severity;
+  }>;
+  allowPatterns?: string[];
 }
 
 export interface PolicyInjectionConfig {
@@ -174,7 +215,7 @@ export interface GuardPolicy {
 
 export interface RawGuardPolicy {
   tools?: PolicyToolsConfig;
-  redaction?: PolicyRedactionConfig;
+  redaction?: RawPolicyRedactionConfig;
   injection?: PolicyInjectionConfig;
 }
 
@@ -190,6 +231,9 @@ export interface InspectFrameOptions {
   pseudonymizePii?: boolean;
   pseudonymizer?: PiiPseudonymizer | null;
   allowEmailDomains?: string[];
+  disabledRules?: Iterable<string> | null;
+  customRules?: CustomRedactionRuleInput[] | null;
+  allowPatterns?: Array<string | RegExp> | null;
   blockInjections?: boolean;
   blockMinRules?: number;
   taintUntrusted?: boolean;
@@ -368,6 +412,9 @@ export interface GuardMcpOptions {
   pseudonymizePii?: boolean;
   pseudonymizer?: PiiPseudonymizer | null;
   allowEmailDomains?: string[];
+  disabledRules?: Iterable<string> | null;
+  customRules?: CustomRedactionRuleInput[] | null;
+  allowPatterns?: Array<string | RegExp> | null;
   injectionThreshold?: Severity;
   taintUntrusted?: boolean;
 }
@@ -406,6 +453,11 @@ export declare function shannonEntropy(str: string): number;
 export declare function hashSecret(value: string): string;
 export declare function isValidLuhn(value: string): boolean;
 export declare function isValidIban(value: string): boolean;
+export declare function compileSafeRegex(
+  pattern: string,
+  flags?: string,
+  options?: CompileSafeRegexOptions
+): RegExp;
 export declare function createPiiPseudonymizer(options?: PiiPseudonymizerOptions): PiiPseudonymizer;
 export declare function redactText(text: string, options?: RedactTextOptions): RedactTextResult;
 export declare function redactPayload<T = unknown>(
