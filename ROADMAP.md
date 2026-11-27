@@ -38,7 +38,7 @@ Internal engineering reviews of `v0.1.0` and early `v0.2.0` established our core
 ### Milestone `v1.0.0` — Production Readiness, Escape Hatches & Supply-Chain Trust
 - [ ] **#24 (`P1`) — Custom redaction rules, rule suppression & allowlist patterns in `mcp-guard.json`:** `redaction.disabledRules`, ReDoS-checked `redaction.customRules`, and `redaction.allowPatterns`.
 - [ ] **#25 (`P1`) — Real-world MCP server compatibility harness:** Dogfood `proxy`, `http-proxy`, and `wrap` against official GitHub/Filesystem stdio servers, Streamable HTTP OAuth/`Mcp-Session-Id`/SSE reconnects, and Windows `npx.cmd`.
-- [ ] **#26 (`P1`) — Automated npm Trusted Publishing (`--provenance`) workflow:** Tag-triggered GitHub Actions OIDC release workflow with Sigstore provenance badge on npmjs.com.
+- [x] **#26 (`P1`) — Automated npm Trusted Publishing (`--provenance`) workflow:** Tag-triggered GitHub Actions OIDC release workflow (`.github/workflows/release.yml`) with Sigstore provenance attestations and zero stored npm tokens.
 - [ ] **#27 (`P1`) — `mcp-guard init`, JSON Schema (`mcp-guard.schema.json`) & `policy test` CLI:** Starter policy templates, editor autocomplete/validation, and offline policy dry-run debugger.
 - [ ] **#28 (`P2`) — Opt-in outbound PII re-hydration for `--pseudonymize-pii` workflows:** Re-hydrate `[EMAIL_1]` back to upstream tools when explicitly enabled while keeping secrets strictly one-way redacted.
 - [ ] **#29 (`P1`) — Public API surface audit, semver freeze & `v1.0.0` readiness:** Freeze stable exports in `src/index.d.ts`, refresh benchmarks, and finalize `SECURITY.md` for `1.0.0`.

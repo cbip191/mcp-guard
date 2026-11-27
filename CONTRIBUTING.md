@@ -32,4 +32,12 @@ npm run demo
 - Link the issue (`Closes #<n>`) and fill out the PR checklist.
 - Keep PRs focused and small so security behavior is easy to audit.
 
+## Releases & npm Provenance
+
+Tagged releases (`v*.*.*`) are published automatically via [`.github/workflows/release.yml`](./.github/workflows/release.yml) using **npm OIDC Trusted Publishing** (`npm publish --provenance --access public`) with no long-lived npm tokens stored in GitHub Secrets:
+
+1. One-time package setup on npmjs.com: under `@4sails/mcp-guard` → **Settings → Trusted Publisher → GitHub Actions**, authorize repository `cbip191/mcp-guard` and workflow filename `release.yml`.
+2. Bump `package.json`, `CHANGELOG.md`, and `SECURITY.md` via PR, merge to `main`, and push an annotated tag matching `v<version>` (`git tag -a vX.Y.Z -m "..." && git push origin vX.Y.Z`).
+3. Verify provenance after publish with `npm audit signatures`.
+
 By participating in this project, you agree to abide by our [Code of Conduct](./CODE_OF_CONDUCT.md).
