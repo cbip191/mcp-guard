@@ -1,6 +1,6 @@
 # `@4sails/mcp-guard`
 
-**Zero-dependency bidirectional DLP proxy, fail-closed citation-scope ACL gate, and prompt-injection tripwire for stdio MCP servers.**
+**Zero-dependency bidirectional DLP proxy, `mcp-guard.json` tool/arg firewall, fail-closed citation-scope ACL gate, and prompt-injection tripwire for stdio & Streamable HTTP/SSE MCP servers.**
 
 - **Zero npm dependencies** (pure Node.js 20+ ESM built-ins)
 - **Smart bidirectional secret DLP:**
@@ -30,27 +30,27 @@ Run `npm run benchmark` (and enforced on every PR by `test/corpus.test.mjs`) aga
 
 ---
 
-## Quickstart (Node.js 20+, Run from Git Clone)
+## Quickstart (Node.js 20+, Zero Dependencies)
 
 ```bash
-git clone https://github.com/cbip191/mcp-guard.git
-cd mcp-guard
+# Run the built-in multi-client agency demo directly via npx
+npx -y @4sails/mcp-guard demo
 
-# Run the built-in multi-client agency demo
-npm run demo
+# Preview wrapping your existing Cursor / Claude Desktop / Claude Code stdio MCP servers (dry-run by default)
+npx -y @4sails/mcp-guard wrap ~/.cursor/mcp.json --dry-run --allow-domain youragency.com
 
-# Run static checks, full test suite (52 tests), and corpus benchmark
-npm run check && npm test && npm run benchmark
+# Apply changes safely (writes a .bak backup automatically)
+npx -y @4sails/mcp-guard wrap ~/.cursor/mcp.json --apply --allow-domain youragency.com
 ```
 
 ### Wrap Any Stdio MCP Server (`mcp.json`)
 
-All examples below use the **taint-by-default** stance so suspicious external comments are quarantined with `[MCP_GUARD_UNTRUSTED_DATA ...]` markers without hiding legitimate tickets. Replace `/path/to/mcp-guard` with your local clone path:
+All examples below use the **taint-by-default** stance so suspicious external comments are quarantined with `[MCP_GUARD_UNTRUSTED_DATA ...]` markers without hiding legitimate tickets:
 
 #### Claude Code
 ```bash
 claude mcp add guarded-github -- \
-  node /path/to/mcp-guard/bin/mcp-guard.mjs proxy --allow-domain youragency.com -- \
+  npx -y @4sails/mcp-guard proxy --allow-domain youragency.com -- \
   npx -y @modelcontextprotocol/server-github
 ```
 
@@ -59,9 +59,10 @@ claude mcp add guarded-github -- \
 {
   "mcpServers": {
     "github": {
-      "command": "node",
+      "command": "npx",
       "args": [
-        "/path/to/mcp-guard/bin/mcp-guard.mjs",
+        "-y",
+        "@4sails/mcp-guard",
         "proxy",
         "--allow-domain",
         "youragency.com",
@@ -80,9 +81,10 @@ claude mcp add guarded-github -- \
 {
   "mcpServers": {
     "jira": {
-      "command": "node",
+      "command": "npx",
       "args": [
-        "/path/to/mcp-guard/bin/mcp-guard.mjs",
+        "-y",
+        "@4sails/mcp-guard",
         "proxy",
         "--allow-domain",
         "youragency.com",
@@ -146,54 +148,70 @@ claude mcp add guarded-github -- \
 
 ```bash
 # Built-in multi-client agency demo
-node ./bin/mcp-guard.mjs demo
+npx -y @4sails/mcp-guard demo
 
-# Wrap an upstream stdio MCP server with policy enforcement + structured JSONL audit logging
-node ./bin/mcp-guard.mjs proxy --policy ./mcp-guard.json --allow-domain youragency.com --audit-log ./mcp-audit.jsonl -- \
+# Wrap an upstream stdio MCP server with policy enforcement, session PII pseudonymization, and audit logging
+npx -y @4sails/mcp-guard proxy --policy ./mcp-guard.json --allow-domain youragency.com \
+  --pseudonymize-pii --audit-log ./mcp-audit.jsonl -- \
   npx -y @modelcontextprotocol/server-github
 
 # Start a local Streamable HTTP / SSE proxy in front of a remote MCP server
-node ./bin/mcp-guard.mjs http-proxy --upstream https://mcp.example.com/mcp --port 8787 \
+npx -y @4sails/mcp-guard http-proxy --upstream https://mcp.example.com/mcp --port 8787 \
   --policy ./mcp-guard.json --allow-domain youragency.com --audit-log ./mcp-audit.jsonl
 
 # Auto-wrap stdio servers inside Cursor / Claude Desktop / Claude Code mcp.json (dry-run preview first!)
-node ./bin/mcp-guard.mjs wrap ~/.cursor/mcp.json --dry-run --local --allow-domain youragency.com
-node ./bin/mcp-guard.mjs wrap ~/.cursor/mcp.json --apply --local --allow-domain youragency.com
-node ./bin/mcp-guard.mjs unwrap ~/.cursor/mcp.json --apply
+npx -y @4sails/mcp-guard wrap ~/.cursor/mcp.json --dry-run --allow-domain youragency.com
+npx -y @4sails/mcp-guard wrap ~/.cursor/mcp.json --apply --allow-domain youragency.com
+npx -y @4sails/mcp-guard unwrap ~/.cursor/mcp.json --apply
 
 # Summarize an audit log in the terminal (or --json for SIEM/CI)
-node ./bin/mcp-guard.mjs audit ./mcp-audit.jsonl
+npx -y @4sails/mcp-guard audit ./mcp-audit.jsonl
 
 # Scan a JSON or JSONL export in CI (omits secret previews by default; pass --show-previews locally)
-node ./bin/mcp-guard.mjs scan ./jira-export.json \
+npx -y @4sails/mcp-guard scan ./jira-export.json \
   --scopes=jira:project:HBR,slack:channel:C04HARBORDEV \
   --allow-domain=youragency.com \
   --injection-threshold=high
 
 # Pipe JSON or JSONL from stdin
-cat mcp-transcript.jsonl | node ./bin/mcp-guard.mjs scan - --taint-untrusted
+cat mcp-transcript.jsonl | npx -y @4sails/mcp-guard scan - --taint-untrusted
 
 # Print version
-node ./bin/mcp-guard.mjs --version
+npx -y @4sails/mcp-guard --version
 ```
 
 ---
 
 ## Programmatic API (ESM + TypeScript)
 
-Ships with TypeScript declarations ([`src/index.d.ts`](./src/index.d.ts)):
+Install as a zero-dependency library (ships with TypeScript declarations in [`src/index.d.ts`](./src/index.d.ts)):
+
+```bash
+npm install @4sails/mcp-guard
+```
 
 ```js
-import { guardMcpResponse } from "./src/index.mjs";
+import { guardMcpResponse, createPiiPseudonymizer } from "@4sails/mcp-guard";
+
+const pseudonymizer = createPiiPseudonymizer();
 
 const { sanitized, report } = guardMcpResponse(rawPayload, {
   callerScopes: ["jira:project:HBR", "slack:channel:C04HARBORDEV"],
   allowEmailDomains: ["youragency.com"],
+  pseudonymizer,
   injectionThreshold: "high",
   taintUntrusted: true,
 });
 
 console.log(report.secretsAndPiiRedacted, report.injectionAlerts, report.taintedPaths);
+```
+
+### Local Development & Verification
+
+```bash
+git clone https://github.com/cbip191/mcp-guard.git
+cd mcp-guard
+npm run check && npm test && npm run benchmark
 ```
 
 ---
