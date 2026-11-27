@@ -303,15 +303,16 @@ test(
     );
 
     let stderr = "";
+    let killed = false;
     child.stderr.on("data", (d) => {
       stderr += d.toString("utf8");
+      if (!killed && stderr.includes("[mock-mcp] ready")) {
+        killed = true;
+        child.kill("SIGTERM");
+      }
     });
     child.on("error", reject);
     child.on("close", (code, signal) => resolvePromise({ code, signal, stderr }));
-
-    setTimeout(() => {
-      child.kill("SIGTERM");
-    }, 150);
   });
 
   assert.equal(result.code, 0);

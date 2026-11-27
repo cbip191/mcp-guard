@@ -21,6 +21,7 @@ if (mode === "sleep") {
   };
   process.on("SIGTERM", () => shutdown("SIGTERM"));
   process.on("SIGINT", () => shutdown("SIGINT"));
+  process.stderr.write("[mock-mcp] ready\n");
 } else {
   const parser = createFrameParser(({ framing, raw }) => {
     let msg;
