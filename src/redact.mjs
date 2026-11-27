@@ -3,6 +3,92 @@
  * Runs synchronously with zero external dependencies before any text hits an LLM context.
  */
 import { createHash } from "node:crypto";
+import { createPiiPseudonymizer } from "./pseudonymize.mjs";
+
+const IBAN_LENGTHS = Object.freeze({
+  AL: 28, AD: 24, AT: 20, AZ: 28, BH: 22, BY: 28, BE: 16, BA: 20, BR: 29, BG: 22,
+  CR: 22, HR: 21, CY: 28, CZ: 24, DK: 18, DO: 28, EE: 20, FO: 18, FI: 18, FR: 27,
+  GE: 22, DE: 22, GI: 23, GR: 27, GL: 18, GT: 28, HU: 28, IS: 26, IQ: 23, IE: 22,
+  IL: 23, IT: 27, JO: 30, KZ: 20, XK: 20, KW: 30, LV: 21, LB: 28, LI: 21, LT: 20,
+  LU: 20, MK: 19, MT: 31, MR: 27, MU: 30, MC: 27, MD: 24, ME: 22, NL: 18, NO: 15,
+  PK: 24, PS: 29, PL: 28, PT: 25, QA: 29, RO: 24, LC: 32, SM: 27, ST: 25, SA: 24,
+  RS: 22, SC: 31, SK: 24, SI: 19, ES: 24, SE: 24, CH: 21, TL: 23, TN: 24, TR: 26,
+  UA: 29, AE: 23, GB: 22, VA: 22, VG: 24,
+});
+
+/**
+ * Validates a numeric string with the standard Luhn (mod-10) checksum.
+ */
+export function isValidLuhn(value) {
+  if (typeof value !== "string") return false;
+  const digits = value.replace(/[\s-]/g, "");
+  if (digits.length < 13 || digits.length > 19 || !/^\d+$/.test(digits)) {
+    return false;
+  }
+  let sum = 0;
+  let shouldDouble = false;
+  for (let i = digits.length - 1; i >= 0; i--) {
+    let digit = digits.charCodeAt(i) - 48;
+    if (shouldDouble) {
+      digit *= 2;
+      if (digit > 9) digit -= 9;
+    }
+    sum += digit;
+    shouldDouble = !shouldDouble;
+  }
+  return sum % 10 === 0;
+}
+
+function isValidCreditCard(value) {
+  const digits = String(value).replace(/[\s-]/g, "");
+  const len = digits.length;
+  if (digits.startsWith("34") || digits.startsWith("37")) {
+    if (len !== 15) return false;
+  } else if (digits.startsWith("4")) {
+    if (len !== 13 && len !== 16 && len !== 19) return false;
+  } else if (digits.startsWith("5") || digits.startsWith("2")) {
+    if (len !== 16) return false;
+  } else if (digits.startsWith("6")) {
+    if (len !== 16 && len !== 19) return false;
+  } else {
+    return false;
+  }
+  return isValidLuhn(digits);
+}
+
+/**
+ * Validates an IBAN against ISO 13616 country lengths and the MOD-97 checksum.
+ */
+export function isValidIban(value) {
+  if (typeof value !== "string") return false;
+  const cleaned = value.replace(/\s+/g, "").toUpperCase();
+  if (cleaned.length < 15 || cleaned.length > 34 || !/^[A-Z]{2}\d{2}[A-Z0-9]+$/.test(cleaned)) {
+    return false;
+  }
+  const country = cleaned.slice(0, 2);
+  const expectedLen = Object.prototype.hasOwnProperty.call(IBAN_LENGTHS, country)
+    ? IBAN_LENGTHS[country]
+    : null;
+  if (!expectedLen || cleaned.length !== expectedLen) {
+    return false;
+  }
+
+  const rearranged = cleaned.slice(4) + cleaned.slice(0, 4);
+  let remainder = 0;
+  for (let i = 0; i < rearranged.length; i++) {
+    const code = rearranged.charCodeAt(i);
+    if (code >= 48 && code <= 57) {
+      remainder = (remainder * 10 + (code - 48)) % 97;
+    } else if (code >= 65 && code <= 90) {
+      const val = code - 55; // A=10 .. Z=35
+      remainder = (remainder * 10 + Math.floor(val / 10)) % 97;
+      remainder = (remainder * 10 + (val % 10)) % 97;
+    } else {
+      return false;
+    }
+  }
+  return remainder === 1;
+}
 
 const JSON_RPC_ENVELOPE_KEYS = new Set(["jsonrpc", "id", "method"]);
 const SCHEMA_METADATA_KEYS = new Set(["$schema", "$id", "$ref"]);
@@ -246,11 +332,36 @@ export const PII_RULES = [
   {
     id: "EMAIL_ADDRESS",
     severity: "medium",
+    pii: true,
     pattern: /(?<![A-Za-z0-9._%+-])[A-Za-z0-9._%+-]{1,64}@[A-Za-z0-9.-]{1,253}\.[A-Za-z]{2,24}\b/g,
+  },
+  {
+    id: "CREDIT_CARD",
+    severity: "high",
+    pii: true,
+    pattern:
+      /(?<![A-Za-z0-9._/-])(?:(?:4\d{12}(?:\d{3}(?:\d{3})?)?|5[1-5]\d{14}|2(?:2[2-9]\d|[3-6]\d{2}|7[01]\d|720)\d{12}|3[47]\d{13}|6(?:011\d{12}(?:\d{3})?|5\d{14}))|(?:4\d{3}|5[1-5]\d{2}|2(?:2[2-9]\d|[3-6]\d{2}|7[01]\d|720)|6(?:011|5\d{2}))([ -])\d{4}\1\d{4}\1\d{1,4}(?:\1\d{1,3})?|3[47]\d{2}([ -])(?:\d{6}\2\d{5}|\d{4}\2\d{4}\2\d{3}))(?![A-Za-z0-9._/-])/g,
+    validate: isValidCreditCard,
+  },
+  {
+    id: "US_SSN",
+    severity: "high",
+    pii: true,
+    pattern:
+      /(?<![A-Za-z0-9._/-])(?!000|666|9\d{2})\d{3}-(?!00)\d{2}-(?!0000)\d{4}(?![A-Za-z0-9._/-])/g,
+  },
+  {
+    id: "IBAN",
+    severity: "high",
+    pii: true,
+    pattern:
+      /(?<![A-Za-z0-9._/-])[A-Z]{2}\d{2}(?:[A-Z0-9]{11,30}|(?: [A-Z0-9]{4}){2,7}(?: [A-Z0-9]{1,4})?)(?![A-Za-z0-9._/-])/g,
+    validate: isValidIban,
   },
   {
     id: "PHONE_NUMBER",
     severity: "medium",
+    pii: true,
     pattern:
       /(?<![A-Za-z0-9._/+-])(?:\+[1-9]\d{0,2}[\s-]+(?:\(\d{1,4}\)|\d{1,4})(?:[\s-]+\d{2,8}){1,3}|\(\d{3}\)[\s.-]?\d{3}[\s.-]\d{4}|(?:1([\s-]))?\d{3}([\s.-])\d{3}\2\d{4})(?![A-Za-z0-9._/-])/g,
     validate: (match) => {
@@ -267,6 +378,8 @@ const ALL_RULES_NO_ENTROPY = [...SECRET_RULES_NO_ENTROPY, ...PII_RULES];
 function normalizeOptions(options = {}) {
   const {
     redactPii = true,
+    pseudonymizePii = false,
+    pseudonymizer = null,
     allowEmailDomains = [],
     detectHighEntropy = true,
     skipEnvelope = true,
@@ -296,7 +409,21 @@ function normalizeOptions(options = {}) {
     rules = detectHighEntropy ? SECRET_RULES : SECRET_RULES_NO_ENTROPY;
   }
 
-  return { rules, allowedDomains, detectHighEntropy, skipEnvelope, skipPathSet };
+  const activePseudonymizer =
+    redactPii && pseudonymizer && typeof pseudonymizer.pseudonymize === "function"
+      ? pseudonymizer
+      : redactPii && pseudonymizePii
+        ? createPiiPseudonymizer()
+        : null;
+
+  return {
+    rules,
+    allowedDomains,
+    detectHighEntropy,
+    skipEnvelope,
+    skipPathSet,
+    pseudonymizer: activePseudonymizer,
+  };
 }
 
 function redactStringInternal(text, normalized, contextKey = null) {
@@ -304,7 +431,7 @@ function redactStringInternal(text, normalized, contextKey = null) {
     return { text, findings: [] };
   }
 
-  const { rules, allowedDomains, detectHighEntropy } = normalized;
+  const { rules, allowedDomains, detectHighEntropy, pseudonymizer } = normalized;
   const findings = [];
   let output = text;
 
@@ -354,13 +481,22 @@ function redactStringInternal(text, normalized, contextKey = null) {
         return match;
       }
 
-      findings.push({
+      const replacement =
+        rule.pii && pseudonymizer
+          ? pseudonymizer.pseudonymize(rule.id, secretVal)
+          : `[REDACTED:${rule.id}]`;
+
+      const finding = {
         ruleId: rule.id,
         severity: rule.severity,
         preview: makePreview(secretVal),
         hash: hashSecret(secretVal),
-      });
-      return `${prefix}[REDACTED:${rule.id}]`;
+      };
+      if (rule.pii && pseudonymizer) {
+        finding.token = replacement;
+      }
+      findings.push(finding);
+      return `${prefix}${replacement}`;
     });
   }
 

@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import {
   guardMcpResponse,
+  createPiiPseudonymizer,
   runStdioProxy,
   startHttpProxy,
   summarizeAuditLog,
@@ -71,25 +72,29 @@ Usage:
       Run a built-in multi-client agency audit (secrets, PII, ACL isolation, prompt injection).
 
   mcp-guard scan <file.json|-> [--jsonl] [--scopes s1,s2] [--allow-domain agency.dev] [--no-pii]
-                 [--injection-threshold <low|medium|high|critical>] [--taint-untrusted] [--show-previews]
+                 [--pseudonymize-pii] [--injection-threshold <low|medium|high|critical>]
+                 [--taint-untrusted] [--show-previews]
       Scan a JSON or JSONL export (or '-' for stdin). Exits 0 if clean, 1 if findings exist, 2 on error.
       Secret previews are omitted by default (SHA-256 hashes only) for CI log safety; pass --show-previews locally.
 
   mcp-guard proxy [--policy <mcp-guard.json>] [--taint-untrusted | --no-taint] [--block-injections]
                   [--block-min-rules <n>] [--injection-threshold <low|medium|high|critical>] [--no-pii]
-                  [--redact-outbound-pii] [--allow-domain agency.dev] [--audit-log <path.jsonl>]
-                  -- <upstream-mcp-command> [args...]
+                  [--pseudonymize-pii] [--redact-outbound-pii] [--allow-domain agency.dev]
+                  [--audit-log <path.jsonl>] -- <upstream-mcp-command> [args...]
       Wrap any stdio MCP server: enforces mcp-guard.json tool/arg policies before execution, scrubs outbound
-      secrets (opt-in PII via --redact-outbound-pii), scrubs inbound secrets/PII, and taints flagged fields.
+      secrets (opt-in PII via --redact-outbound-pii), scrubs inbound secrets/PII (or deterministically
+      pseudonymizes PII per session with --pseudonymize-pii), and taints flagged fields.
 
   mcp-guard http-proxy --upstream <https://...> [--port 8787] [--host 127.0.0.1]
                        [--policy <mcp-guard.json>] [--audit-log <path.jsonl>] [--allow-domain agency.dev]
                        [--taint-untrusted | --no-taint] [--block-injections] [--block-min-rules <n>]
-                       [--injection-threshold <low|medium|high|critical>] [--no-pii] [--redact-outbound-pii]
+                       [--injection-threshold <low|medium|high|critical>] [--no-pii] [--pseudonymize-pii]
+                       [--redact-outbound-pii]
       Start a local Streamable HTTP / SSE MCP proxy in front of any remote MCP server.
 
   mcp-guard wrap <mcp.json> [--dry-run | --apply] [--local] [--server name1,name2] [--policy <path>]
-                 [--allow-domain agency.dev] [--audit-log <path.jsonl>] [--block-injections] [--no-taint]
+                 [--allow-domain agency.dev] [--audit-log <path.jsonl>] [--pseudonymize-pii]
+                 [--block-injections] [--no-taint]
       Safely wrap stdio servers in Cursor, Claude Desktop, or Claude Code mcp.json (dry-run by default;
       --apply writes changes and creates a .bak backup). Use --local to point to this local CLI binary.
 
@@ -287,9 +292,12 @@ if (cmd === "scan") {
   const forceJsonl = scanArgs.includes("--jsonl");
   const showPreviews = scanArgs.includes("--show-previews");
 
+  const pseudonymizePii = scanArgs.includes("--pseudonymize-pii");
   const guardOpts = {
     callerScopes: scopesRaw ? scopesRaw.split(",").map((s) => s.trim()).filter(Boolean) : null,
     redactPii: !scanArgs.includes("--no-pii"),
+    pseudonymizePii,
+    pseudonymizer: pseudonymizePii ? createPiiPseudonymizer() : null,
     allowEmailDomains: allowDomainRaw
       ? allowDomainRaw.split(",").map((s) => s.trim().toLowerCase()).filter(Boolean)
       : [],
@@ -360,7 +368,13 @@ if (cmd === "wrap" || cmd === "unwrap") {
       const val = getFlagValue(wrapArgs, flag);
       if (val !== null) proxyFlags.push(flag, val);
     }
-    for (const boolFlag of ["--block-injections", "--no-taint", "--no-pii", "--redact-outbound-pii"]) {
+    for (const boolFlag of [
+      "--block-injections",
+      "--no-taint",
+      "--no-pii",
+      "--pseudonymize-pii",
+      "--redact-outbound-pii",
+    ]) {
       if (wrapArgs.includes(boolFlag)) proxyFlags.push(boolFlag);
     }
     transformOpts.proxyFlags = proxyFlags;
@@ -455,6 +469,7 @@ function parseProxyFlags(flags) {
       : undefined,
     redactPii: flags.includes("--no-pii") ? false : undefined,
     redactOutboundPii: flags.includes("--redact-outbound-pii") ? true : undefined,
+    pseudonymizePii: flags.includes("--pseudonymize-pii") ? true : undefined,
     blockInjections: flags.includes("--block-injections") ? true : undefined,
     blockMinRules,
     taintUntrusted: flags.includes("--no-taint")

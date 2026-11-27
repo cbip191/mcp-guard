@@ -6,6 +6,7 @@
 import http from "node:http";
 import { performance } from "node:perf_hooks";
 import { inspectFrame, DEFAULT_MAX_FRAME_BYTES } from "./proxy.mjs";
+import { createPiiPseudonymizer } from "./pseudonymize.mjs";
 import { buildAuditEntry, createAuditLogger } from "./audit.mjs";
 
 const HOP_BY_HOP_HEADERS = new Set([
@@ -285,9 +286,16 @@ export async function startHttpProxy(options = {}) {
   const onAuditEntry = options.onAuditEntry ?? null;
   const fetchImpl = options.fetchImpl ?? globalThis.fetch;
 
+  const pseudonymizePii =
+    options.pseudonymizePii ?? policy?.redaction?.pseudonymizePii ?? false;
+  const pseudonymizer =
+    options.pseudonymizer ?? (pseudonymizePii ? createPiiPseudonymizer() : null);
+
   const inspectOpts = {
     redactPii: options.redactPii ?? policy?.redaction?.redactPii ?? true,
     redactOutboundPii: options.redactOutboundPii ?? policy?.redaction?.redactOutboundPii ?? false,
+    pseudonymizePii,
+    pseudonymizer,
     allowEmailDomains:
       options.allowEmailDomains && options.allowEmailDomains.length > 0
         ? options.allowEmailDomains

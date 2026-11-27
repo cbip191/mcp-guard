@@ -3,6 +3,10 @@ import {
   redactPayload,
   shannonEntropy,
   hashSecret,
+  isValidLuhn,
+  isValidIban,
+  createPiiPseudonymizer,
+  PII_PSEUDONYM_PREFIX,
   SECRET_RULES,
   PII_RULES,
   filterFactsForPrincipal,
@@ -38,12 +42,20 @@ import {
   type GuardMcpResult,
   type GuardPolicy,
   type HttpProxyHandle,
+  type PiiPseudonymizer,
   type Severity,
 } from "@4sails/mcp-guard";
 
 const entropy: number = shannonEntropy("abc123");
+const luhnOk: boolean = isValidLuhn("4242424242424242");
+const ibanOk: boolean = isValidIban("DE89 3704 0044 0532 0130 00");
+const pseudo: PiiPseudonymizer = createPiiPseudonymizer({ maxEntries: 500 });
+const pseudoToken: string = pseudo.pseudonymize("EMAIL_ADDRESS", "maria@client.com");
+const pseudoStats = pseudo.stats();
 const textRes = redactText("hello", {
   redactPii: true,
+  pseudonymizePii: true,
+  pseudonymizer: pseudo,
   allowEmailDomains: ["agency.dev"],
   detectHighEntropy: true,
 });
@@ -124,6 +136,11 @@ const diffText: string = formatJsonDiff("a\n", "b\n");
 
 void [
   entropy,
+  luhnOk,
+  ibanOk,
+  pseudoToken,
+  pseudoStats,
+  PII_PSEUDONYM_PREFIX,
   hash,
   auditEntry,
   auditSummary,
