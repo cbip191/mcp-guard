@@ -361,3 +361,156 @@ test("HTTP/SSE proxy enforces bidirectional redaction, policy ACLs, SSE taint/bl
 
   rmSync(dir, { recursive: true, force: true });
 });
+
+test("HTTP/SSE proxy preserves OAuth 2.1 401 + WWW-Authenticate (even with empty body), Mcp-Session-Id, 202 notifications, and Last-Event-ID SSE resume", async () => {
+  let lastSessionSeen = null;
+  let lastEventIdSeen = null;
+
+  const upstream = http.createServer(async (req, res) => {
+    const reqUrl = req.url || "/";
+    if (req.method === "GET" && reqUrl === "/.well-known/oauth-protected-resource") {
+      res.writeHead(200, { "content-type": "application/json" });
+      res.end(
+        JSON.stringify({
+          resource: "https://mcp.example.com/mcp",
+          authorization_servers: ["https://auth.example.com"],
+        })
+      );
+      return;
+    }
+
+    if (req.method === "POST") {
+      const chunks = [];
+      for await (const c of req) chunks.push(c);
+      const bodyStr = Buffer.concat(chunks).toString("utf8");
+
+      // Unauthenticated request -> 401 with empty body and WWW-Authenticate header
+      if (req.headers.authorization !== "Bearer valid-oauth-token") {
+        res.writeHead(401, {
+          "www-authenticate": 'Bearer resource_metadata="https://mcp.example.com/.well-known/oauth-protected-resource"',
+        });
+        res.end();
+        return;
+      }
+
+      const parsed = JSON.parse(bodyStr);
+      if (parsed.method === "initialize") {
+        res.writeHead(200, {
+          "content-type": "application/json",
+          "mcp-session-id": "mcp-sess-999",
+        });
+        res.end(
+          JSON.stringify({
+            jsonrpc: "2.0",
+            id: parsed.id,
+            result: {
+              protocolVersion: "2025-03-26",
+              capabilities: { tools: {} },
+              serverInfo: { name: "remote-oauth-mcp", version: "1.0.0" },
+            },
+          })
+        );
+        return;
+      }
+
+      if (parsed.method === "notifications/initialized") {
+        lastSessionSeen = req.headers["mcp-session-id"] || null;
+        res.writeHead(202);
+        res.end();
+        return;
+      }
+    }
+
+    if (req.method === "GET" && reqUrl.startsWith("/mcp")) {
+      lastSessionSeen = req.headers["mcp-session-id"] || null;
+      lastEventIdSeen = req.headers["last-event-id"] || null;
+      res.writeHead(200, { "content-type": "text/event-stream; charset=utf-8" });
+      res.write(
+        encodeSseEvent({
+          id: "evt-42",
+          event: "message",
+          data: JSON.stringify({
+            jsonrpc: "2.0",
+            method: "notifications/message",
+            params: { text: `Resumed from ${lastEventIdSeen} with ${SAMPLE_STRIPE}` },
+          }),
+        })
+      );
+      res.end();
+      return;
+    }
+
+    res.writeHead(404);
+    res.end();
+  });
+
+  await new Promise((resolveListen) => upstream.listen(0, "127.0.0.1", resolveListen));
+  const upstreamPort = upstream.address().port;
+  const proxy = await startHttpProxy({
+    upstream: `http://127.0.0.1:${upstreamPort}/mcp`,
+    host: "127.0.0.1",
+    port: 0,
+  });
+
+  try {
+    // 1. Empty-body 401 Unauthorized MUST stay 401 (never rewritten to 204) with WWW-Authenticate intact
+    const unauthRes = await fetch(`${proxy.url}/mcp`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "initialize", params: {} }),
+    });
+    assert.equal(unauthRes.status, 401);
+    assert.match(unauthRes.headers.get("www-authenticate") || "", /resource_metadata=/);
+
+    // 2. Protected resource metadata discovery passes through cleanly
+    const metaRes = await fetch(`${proxy.url}/.well-known/oauth-protected-resource`);
+    assert.equal(metaRes.status, 200);
+    const metaJson = await metaRes.json();
+    assert.equal(metaJson.authorization_servers[0], "https://auth.example.com");
+
+    // 3. Authenticated initialize returns Mcp-Session-Id
+    const initRes = await fetch(`${proxy.url}/mcp`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: "Bearer valid-oauth-token",
+      },
+      body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "initialize", params: {} }),
+    });
+    assert.equal(initRes.status, 200);
+    assert.equal(initRes.headers.get("mcp-session-id"), "mcp-sess-999");
+
+    // 4. notifications/initialized forwards Mcp-Session-Id and preserves 202 Accepted
+    const notifRes = await fetch(`${proxy.url}/mcp`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: "Bearer valid-oauth-token",
+        "mcp-session-id": "mcp-sess-999",
+      },
+      body: JSON.stringify({ jsonrpc: "2.0", method: "notifications/initialized" }),
+    });
+    assert.equal(notifRes.status, 202);
+    assert.equal(lastSessionSeen, "mcp-sess-999");
+
+    // 5. GET SSE stream forwards Mcp-Session-Id + Last-Event-ID and still redacts upstream secrets
+    const resumeRes = await fetch(`${proxy.url}/mcp`, {
+      method: "GET",
+      headers: {
+        accept: "text/event-stream",
+        authorization: "Bearer valid-oauth-token",
+        "mcp-session-id": "mcp-sess-999",
+        "last-event-id": "evt-41",
+      },
+    });
+    assert.equal(resumeRes.status, 200);
+    const sseText = await resumeRes.text();
+    assert.equal(lastEventIdSeen, "evt-41");
+    assert.ok(sseText.includes("Resumed from evt-41"));
+    assert.ok(sseText.includes("[REDACTED:STRIPE_SECRET_KEY]"));
+    assert.ok(!sseText.includes("51N9xHttpMockServer"));
+  } finally {
+    await proxy.close();
+    await new Promise((r) => upstream.close(r));
+  }
+});

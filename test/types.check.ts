@@ -19,6 +19,7 @@ import {
   createFrameParser,
   encodeFrame,
   inspectFrame,
+  resolveSpawnSpec,
   runStdioProxy,
   DEFAULT_MAX_FRAME_BYTES,
   buildAuditEntry,
@@ -80,6 +81,7 @@ const parser = createFrameParser((frame) => {
 parser.push("hello\n");
 parser.end();
 
+const spawnSpec = resolveSpawnSpec("npx", ["-y", "@modelcontextprotocol/server-github"], "win32");
 const inspected = inspectFrame("{}", "agent->mcp", {
   redactPii: true,
   redactOutboundPii: false,
@@ -172,6 +174,7 @@ void [
   norm,
   alerts,
   tainted,
+  spawnSpec,
   inspected,
   guarded,
   SECRET_RULES,

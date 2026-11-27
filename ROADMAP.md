@@ -37,7 +37,7 @@ Internal engineering reviews of `v0.1.0` and early `v0.2.0` established our core
 
 ### Milestone `v1.0.0` — Production Readiness, Escape Hatches & Supply-Chain Trust
 - [x] **#24 (`P1`) — Custom redaction rules, rule suppression & allowlist patterns in `mcp-guard.json`:** `redaction.disabledRules`, ReDoS-checked `redaction.customRules` (`compileSafeRegex`), and `redaction.allowPatterns`.
-- [ ] **#25 (`P1`) — Real-world MCP server compatibility harness:** Dogfood `proxy`, `http-proxy`, and `wrap` against official GitHub/Filesystem stdio servers, Streamable HTTP OAuth/`Mcp-Session-Id`/SSE reconnects, and Windows `npx.cmd`.
+- [x] **#25 (`P1`) — Real-world MCP server compatibility harness:** Verified MCP `2025-03-26` GitHub/Filesystem lifecycle, fixed Streamable HTTP OAuth `401` empty-body preservation + `Mcp-Session-Id`/`Last-Event-ID` lifecycle, added Windows `.cmd`/`npx` `resolveSpawnSpec` + live Windows CI shim test, and added `scripts/smoke-real-mcp.mjs` for official `@modelcontextprotocol/server-filesystem`.
 - [x] **#26 (`P1`) — Automated npm Trusted Publishing (`--provenance`) workflow:** Tag-triggered GitHub Actions OIDC release workflow (`.github/workflows/release.yml`) with Sigstore provenance attestations and zero stored npm tokens.
 - [ ] **#27 (`P1`) — `mcp-guard init`, JSON Schema (`mcp-guard.schema.json`) & `policy test` CLI:** Starter policy templates, editor autocomplete/validation, and offline policy dry-run debugger.
 - [ ] **#28 (`P2`) — Opt-in outbound PII re-hydration for `--pseudonymize-pii` workflows:** Re-hydrate `[EMAIL_1]` back to upstream tools when explicitly enabled while keeping secrets strictly one-way redacted.

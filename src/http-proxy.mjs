@@ -164,7 +164,10 @@ function resolveTargetUrl(upstreamBase, reqUrl) {
   const target = new URL(upstreamBase.toString());
   const basePath = upstreamBase.pathname.replace(/\/+$/, "");
 
-  if (incoming.pathname !== "/" && incoming.pathname !== upstreamBase.pathname) {
+  // RFC 8615 / RFC 9728 /.well-known/* discovery endpoints always live at the origin root
+  if (incoming.pathname.startsWith("/.well-known/")) {
+    target.pathname = incoming.pathname;
+  } else if (incoming.pathname !== "/" && incoming.pathname !== upstreamBase.pathname) {
     if (basePath && incoming.pathname.startsWith(`${basePath}/`)) {
       target.pathname = incoming.pathname;
     } else {
@@ -577,7 +580,13 @@ export async function startHttpProxy(options = {}) {
 
         copySafeResponseHeaders(upstreamRes.headers, res);
         if (outbound.output === null) {
-          res.writeHead(204);
+          // Preserve error/auth status codes (e.g. 401 Unauthorized + WWW-Authenticate with empty body);
+          // only convert intentionally dropped 2xx responses/notifications to 204 No Content.
+          const status =
+            outbound.action === "drop" && upstreamRes.status >= 200 && upstreamRes.status < 300
+              ? 204
+              : upstreamRes.status;
+          res.writeHead(status);
           res.end();
           return;
         }

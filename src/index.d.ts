@@ -395,6 +395,15 @@ export interface ApplyWrapResult {
   diff: string;
 }
 
+export interface SpawnSpec {
+  command: string;
+  args: string[];
+  options: {
+    windowsVerbatimArguments?: boolean;
+    windowsHide?: boolean;
+  };
+}
+
 export interface StdioProxyOptions extends InspectFrameOptions {
   auditLog?: string | null;
   onAuditEntry?: ((entry: AuditEntry) => void) | null;
@@ -492,6 +501,11 @@ export declare function inspectFrame(
   direction: ProxyDirection,
   options?: InspectFrameOptions
 ): InspectFrameResult;
+export declare function resolveSpawnSpec(
+  command: string,
+  args?: string[],
+  platform?: NodeJS.Platform
+): SpawnSpec;
 export declare function runStdioProxy(
   command: string,
   args?: string[],
