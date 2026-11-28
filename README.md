@@ -26,7 +26,7 @@ Run `npm run benchmark` (and enforced on every PR by `test/corpus.test.mjs`) aga
 | **Benign engineering probes blocked (`--block-injections`)** | **0 / 8 (0.0%)** | Includes `"Ignore previous instructions about the deadline"` and `"Use the <system> tag in the XML config"` |
 | **Planted synthetic secret catch rate** | **24 / 24 (100.0%)** | All 24 supported secret formats planted inside real Kafka tickets |
 | **Labelled prompt-injection tripwire catch rate** | **20 / 26 (76.9%)** | **23.1% miss rate:** catches structured, reworded, AI-reader, delimiter, and obfuscated attacks; intentionally misses subtle paraphrased, base64, and non-English social engineering (regex tripwires are not a semantic classifier) |
-| **Proxy frame inspection latency (`inspectFrame`)** | **0.05 ms p50 · 0.14 ms p95 · 0.34 ms p99** | Full JSON parse + secret scan + injection scan + serialize across 350 Kafka JSON-RPC frames (`14.8 MB/s` on Apple Silicon; CI enforces `< 5 ms` p99 on shared runners) |
+| **Proxy frame inspection latency (`inspectFrame`)** | **0.05 ms p50 · 0.14 ms p95 · 0.29 ms p99** | Full JSON parse + secret scan + injection scan + serialize across 350 Kafka JSON-RPC frames (`15.0 MB/s` on Apple Silicon; CI enforces `< 5 ms` p99 on shared runners) |
 
 ---
 
@@ -216,6 +216,14 @@ const { sanitized, report } = guardMcpResponse(rawPayload, {
 
 console.log(report.secretsAndPiiRedacted, report.injectionAlerts, report.taintedPaths);
 ```
+
+### SemVer & Public API Stability (`v1.0.0`)
+
+As of `v1.0.0`, all 43 exports declared in [`src/index.d.ts`](./src/index.d.ts) and the CLI flags / `mcp-guard.json` schema (`mcp-guard.schema.json`) follow **Semantic Versioning 2.0.0**:
+- **Core DLP & Pseudonymization:** `guardMcpResponse`, `redactText`, `redactPayload`, `createPiiPseudonymizer`, `compileSafeRegex`, `hashSecret`, `shannonEntropy`, `isValidLuhn`, `isValidIban`, `SECRET_RULES`, `PII_RULES`, `PII_PSEUDONYM_PREFIX`.
+- **Policy & Citation ACLs:** `validatePolicy`, `loadPolicyFile`, `evaluateToolCallPolicy`, `getOutboundSecretSkipPaths`, `matchGlob`, `generateStarterPolicy`, `POLICY_PRESETS`, `filterFactsForPrincipal`.
+- **Injection Tripwire:** `detectPromptInjection`, `taintUntrustedPayload`, `normalizeForInjectionScan`, `INJECTION_PATTERNS`, `SEVERITY_RANK`.
+- **Transports, Audit & Config Auto-Wrap:** `runStdioProxy`, `startHttpProxy`, `inspectFrame`, `createFrameParser`, `encodeFrame`, `createSseParser`, `encodeSseEvent`, `resolveSpawnSpec`, `DEFAULT_MAX_FRAME_BYTES`, `buildAuditEntry`, `createAuditLogger`, `summarizeAuditLog`, `formatAuditSummary`, `wrapMcpConfig`, `unwrapMcpConfig`, `isWrappedServer`, `formatJsonDiff`, `applyMcpConfigTransform`.
 
 ### Local Development & Verification
 

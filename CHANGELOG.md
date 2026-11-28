@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [1.0.0] - 2026-11-28
+
+First stable **`v1.0.0`** release under Semantic Versioning 2.0.0, freezing all 43 TypeScript-verified exports in `src/index.d.ts`, the CLI interface, and `mcp-guard.schema.json`.
+
 ### Added
 - **Opt-in outbound PII re-hydration (`src/pseudonymize.mjs`, `src/proxy.mjs`, `src/http-proxy.mjs`, `src/policy.mjs`, `bin/mcp-guard.mjs`):** Added `rehydrateText()` / `rehydratePayload()` on `createPiiPseudonymizer()`, `--rehydrate-outbound-pii` CLI flag, and `redaction.rehydrateOutboundPii` (`boolean | string[]` per-tool globs in `mcp-guard.json` & `mcp-guard.schema.json`) enabling read+write agent workflows without exposing raw PII to the LLM while keeping secrets strictly one-way redacted.
 - **`mcp-guard init`, `mcp-guard.schema.json` & `mcp-guard policy test` (`src/policy.mjs`, `bin/mcp-guard.mjs`, `mcp-guard.schema.json`):** Packaged JSON Schema Draft 2020-12 (`mcp-guard.schema.json`) with `$schema` support in `validatePolicy`, added `POLICY_PRESETS` & `generateStarterPolicy()` (`default`, `github`, `jira`, `slack`, `strict`), `mcp-guard init [--preset ...] [--force]`, and `mcp-guard policy test <policy.json> <tool> [jsonArgs] [--json]` offline debugger.
