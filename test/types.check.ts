@@ -56,6 +56,8 @@ const ibanOk: boolean = isValidIban("DE89 3704 0044 0532 0130 00");
 const safeRe: RegExp = compileSafeRegex("acme_[A-Za-z0-9]{12}", "i", { requireGlobal: true });
 const pseudo: PiiPseudonymizer = createPiiPseudonymizer({ maxEntries: 500 });
 const pseudoToken: string = pseudo.pseudonymize("EMAIL_ADDRESS", "maria@client.com");
+const rehydratedText = pseudo.rehydrateText(`Assign to ${pseudoToken}`);
+const rehydratedPayload = pseudo.rehydratePayload({ assignee: pseudoToken });
 const pseudoStats = pseudo.stats();
 const textRes = redactText("hello", {
   redactPii: true,
@@ -152,6 +154,8 @@ void [
   ibanOk,
   safeRe,
   pseudoToken,
+  rehydratedText,
+  rehydratedPayload,
   pseudoStats,
   PII_PSEUDONYM_PREFIX,
   hash,

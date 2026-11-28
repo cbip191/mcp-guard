@@ -37,8 +37,25 @@ export interface PiiPseudonymizerStats {
   byType: Record<string, number>;
 }
 
+export interface RehydrateTextResult {
+  text: string;
+  rehydratedCount: number;
+  tokens: string[];
+}
+
+export interface RehydratePayloadResult<T = unknown> {
+  payload: T;
+  rehydratedCount: number;
+  tokens: string[];
+}
+
 export interface PiiPseudonymizer {
   pseudonymize(ruleId: string, rawValue: string): string;
+  rehydrateText(text: string): RehydrateTextResult;
+  rehydratePayload<T = unknown>(
+    value: T,
+    options?: { skipEnvelope?: boolean }
+  ): RehydratePayloadResult<T>;
   stats(): PiiPseudonymizerStats;
   reset(): void;
 }
@@ -67,6 +84,7 @@ export interface RedactTextOptions {
   redactPii?: boolean;
   pseudonymizePii?: boolean;
   pseudonymizer?: PiiPseudonymizer | null;
+  rehydrateOutboundPii?: boolean | string[];
   allowEmailDomains?: string[];
   detectHighEntropy?: boolean;
   disabledRules?: Iterable<string> | null;
@@ -174,6 +192,7 @@ export interface PolicyRedactionConfig {
   redactPii?: boolean;
   redactOutboundPii?: boolean;
   pseudonymizePii?: boolean;
+  rehydrateOutboundPii?: boolean | string[];
   allowEmailDomains?: string[];
   disabledRules?: string[];
   customRules?: CompiledCustomRedactionRule[];
@@ -184,6 +203,7 @@ export interface RawPolicyRedactionConfig {
   redactPii?: boolean;
   redactOutboundPii?: boolean;
   pseudonymizePii?: boolean;
+  rehydrateOutboundPii?: boolean | string[];
   allowEmailDomains?: string[];
   disabledRules?: string[];
   customRules?: Array<{
@@ -233,6 +253,7 @@ export interface InspectFrameOptions {
   redactOutboundPii?: boolean;
   pseudonymizePii?: boolean;
   pseudonymizer?: PiiPseudonymizer | null;
+  rehydrateOutboundPii?: boolean | string[];
   allowEmailDomains?: string[];
   disabledRules?: Iterable<string> | null;
   customRules?: CustomRedactionRuleInput[] | null;
@@ -423,6 +444,7 @@ export interface GuardMcpOptions {
   redactPii?: boolean;
   pseudonymizePii?: boolean;
   pseudonymizer?: PiiPseudonymizer | null;
+  rehydrateOutboundPii?: boolean | string[];
   allowEmailDomains?: string[];
   disabledRules?: Iterable<string> | null;
   customRules?: CustomRedactionRuleInput[] | null;

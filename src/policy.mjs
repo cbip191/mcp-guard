@@ -91,6 +91,7 @@ const ALLOWED_REDACTION_KEYS = new Set([
   "redactPii",
   "redactOutboundPii",
   "pseudonymizePii",
+  "rehydrateOutboundPii",
   "allowEmailDomains",
   "disabledRules",
   "customRules",
@@ -255,6 +256,23 @@ export function validatePolicy(raw) {
         throw new Error('Invalid policy: "redaction.pseudonymizePii" must be a boolean.');
       }
       normalized.redaction.pseudonymizePii = raw.redaction.pseudonymizePii;
+    }
+    if (raw.redaction.rehydrateOutboundPii !== undefined) {
+      if (typeof raw.redaction.rehydrateOutboundPii === "boolean") {
+        normalized.redaction.rehydrateOutboundPii = raw.redaction.rehydrateOutboundPii;
+      } else if (Array.isArray(raw.redaction.rehydrateOutboundPii)) {
+        assertStringArray(raw.redaction.rehydrateOutboundPii, "redaction.rehydrateOutboundPii");
+        if (raw.redaction.rehydrateOutboundPii.length === 0) {
+          throw new Error(
+            'Invalid policy: "redaction.rehydrateOutboundPii" array must contain at least one tool pattern.'
+          );
+        }
+        normalized.redaction.rehydrateOutboundPii = [...raw.redaction.rehydrateOutboundPii];
+      } else {
+        throw new Error(
+          'Invalid policy: "redaction.rehydrateOutboundPii" must be a boolean or an array of tool globs.'
+        );
+      }
     }
     if (raw.redaction.allowEmailDomains !== undefined) {
       assertStringArray(raw.redaction.allowEmailDomains, "redaction.allowEmailDomains");
